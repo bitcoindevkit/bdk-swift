@@ -1301,7 +1301,7 @@ public struct ExtendedKeyInfo {
 }
 
 
-extension ExtendedKeyInfo: Equatable, Hashable {
+extension ExtendedKeyInfo: Equatable, Hashable, Codable {
     public static func ==(lhs: ExtendedKeyInfo, rhs: ExtendedKeyInfo) -> Bool {
         if lhs.mnemonic != rhs.mnemonic {
             return false
