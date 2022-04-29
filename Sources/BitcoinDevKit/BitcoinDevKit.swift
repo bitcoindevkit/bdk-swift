@@ -1774,7 +1774,14 @@ public protocol BdkProgress : AnyObject {
 }
 
 public class Progress : BdkProgress {
-    var value = Float()
+    public var value: Float
+    public var message: String
+    
+    public init() {
+        self.value = Float()
+        self.message = ""
+    }
+    
     public func update(progress: Float, message: String?) {
         value = progress
         print("progress", progress, message as Any)
