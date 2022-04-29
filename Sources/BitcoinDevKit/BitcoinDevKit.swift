@@ -1773,6 +1773,14 @@ public protocol BdkProgress : AnyObject {
     
 }
 
+public class Progress : BdkProgress {
+    var value = Float()
+    func update(progress: Float, message: String?) {
+        value = progress
+        print("progress", progress, message as Any)
+    }
+}
+
 // The ForeignCallback that is passed to Rust.
 fileprivate let foreignCallbackCallbackInterfaceBdkProgress : ForeignCallback =
     { (handle: Handle, method: Int32, args: RustBuffer, out_buf: UnsafeMutablePointer<RustBuffer>) -> Int32 in
