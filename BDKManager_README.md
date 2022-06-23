@@ -135,31 +135,6 @@ struct WalletView: View {
 }
 ```
 
-## Public functions
-
-BDK Manager has the following public functions:
-```swift
-init(network: Network, syncSource: SyncSource, database: Database)
-generateExtendedKey(wordCount: WordCount?, password: String?) throws -> ExtendedKeyInfo
-createDescriptorFromXprv(descriptorType: DescriptorType, xprv: String) -> String
-loadWallet(descriptor: String)
-sync()
-startSyncRegularly(interval: TimeInterval)
-stopSyncRegularly()
-sendBitcoin(recipient: String, amount: UInt64, feeRate: Float) -> Bool
-```
-
-Since the wallet is a BDK Wallet, the corresponding functions are also available on .wallet:
-```swift
-getNewAddress()  -> String
-getLastUnusedAddress()  -> String
-getBalance() throws -> UInt64
-sign( psbt: PartiallySignedBitcoinTransaction ) throws
-getTransactions() throws -> [Transaction]
-getNetwork()  -> Network
-broadcast( psbt: PartiallySignedBitcoinTransaction ) throws -> Transaction
-```
-
 ## Public variables
 
 BDK Manager has the following `@Published` public variables, meaning they can be observed and lead to updates in SwiftUI:
@@ -169,4 +144,28 @@ BDK Manager has the following `@Published` public variables, meaning they can be
 .transactions: [BitcoinDevKit.Transaction]
 .walletState // .empty, .loading, .loaded, .failed
 .syncState // .empty, .syncing, .synced, .failed
+```
+
+## Public functions
+
+BDK Manager has the following public functions:
+```swift
+init(network: Network, syncSource: SyncSource, database: Database)
+loadWallet(descriptor: String)
+
+sync()
+startSyncRegularly(interval: TimeInterval)
+stopSyncRegularly()
+
+sendBitcoin(recipient: String, amount: UInt64, feeRate: Float) -> Bool
+
+generateExtendedKey(wordCount: WordCount?, password: String?) throws -> ExtendedKeyInfo // Remove
+createDescriptorFromXprv(descriptorType: DescriptorType, xprv: String) -> String
+```
+
+Since the wallet is a BDK `Wallet`, the corresponding functions are also available on .wallet:
+```swift
+getNewAddress()  -> String
+getLastUnusedAddress()  -> String
+sign(psbt: PartiallySignedBitcoinTransaction ) throws
 ```
