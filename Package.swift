@@ -25,7 +25,7 @@ let package = Package(
         .binaryTarget(
             name: "bdkFFI",
             url: "https://github.com/bitcoindevkit/bdk-swift/releases/download/0.6.0/bdkFFI.xcframework.zip",
-            checksum: "32cbcdb2d339631154497ec801a9da2022310943eed46c37eac6f864b6490bb9"),
+            checksum: "96eed454597f5165f04adb4a99aed06dd0d494b5a8532598ae2881b948d61c7b"),
         .target(
             name: "BitcoinDevKit",
             dependencies: ["bdkFFI"]),
