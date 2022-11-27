@@ -20,4 +20,4 @@ To use the Swift language bindings for `BitcoinDevKit` in your [Xcode] iOS or Ma
 
 [Swift]: https://developer.apple.com/swift/
 [Xcode]: https://developer.apple.com/documentation/Xcode
-[bdk-ffi]: https://github.com/notmandatory/bdk-ffi
+[bdk-ffi]: https://github.com/bitcoindevkit/bdk-ffi
