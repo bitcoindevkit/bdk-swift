@@ -19,13 +19,13 @@ fileprivate extension RustBuffer {
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
-        try! rustCall { ffi_bdk_1724_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
+        try! rustCall { ffi_bdk_1cc_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
     }
 
     // Frees the buffer in place.
     // The buffer must not be used after this is called.
     func deallocate() {
-        try! rustCall { ffi_bdk_1724_rustbuffer_free(self, $0) }
+        try! rustCall { ffi_bdk_1cc_rustbuffer_free(self, $0) }
     }
 }
 
@@ -412,13 +412,13 @@ public class Address: AddressProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_1724_Address_new(
+    bdk_1cc_Address_new(
         FfiConverterString.lower(`address`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_Address_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Address_object_free(pointer, $0) }
     }
 
     
@@ -429,7 +429,7 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_1724_Address_script_pubkey(self.pointer, $0
+    bdk_1cc_Address_script_pubkey(self.pointer, $0
     )
 }
         )
@@ -470,7 +470,7 @@ fileprivate struct FfiConverterTypeAddress: FfiConverter {
 
 
 public protocol BlockchainProtocol {
-    func `broadcast`(`psbt`: PartiallySignedBitcoinTransaction) throws
+    func `broadcast`(`psbt`: PartiallySignedTransaction) throws
     func `getHeight`() throws -> UInt32
     func `getBlockHash`(`height`: UInt32) throws -> String
     
@@ -490,23 +490,23 @@ public class Blockchain: BlockchainProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_1724_Blockchain_new(
+    bdk_1cc_Blockchain_new(
         FfiConverterTypeBlockchainConfig.lower(`config`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_Blockchain_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Blockchain_object_free(pointer, $0) }
     }
 
     
 
     
-    public func `broadcast`(`psbt`: PartiallySignedBitcoinTransaction) throws {
+    public func `broadcast`(`psbt`: PartiallySignedTransaction) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Blockchain_broadcast(self.pointer, 
-        FfiConverterTypePartiallySignedBitcoinTransaction.lower(`psbt`), $0
+    bdk_1cc_Blockchain_broadcast(self.pointer, 
+        FfiConverterTypePartiallySignedTransaction.lower(`psbt`), $0
     )
 }
     }
@@ -514,7 +514,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterUInt32.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Blockchain_get_height(self.pointer, $0
+    bdk_1cc_Blockchain_get_height(self.pointer, $0
     )
 }
         )
@@ -523,7 +523,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterString.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Blockchain_get_block_hash(self.pointer, 
+    bdk_1cc_Blockchain_get_block_hash(self.pointer, 
         FfiConverterUInt32.lower(`height`), $0
     )
 }
@@ -568,7 +568,7 @@ public protocol BumpFeeTxBuilderProtocol {
     func `allowShrinking`(`address`: String)  -> BumpFeeTxBuilder
     func `enableRbf`()  -> BumpFeeTxBuilder
     func `enableRbfWithSequence`(`nsequence`: UInt32)  -> BumpFeeTxBuilder
-    func `finish`(`wallet`: Wallet) throws -> PartiallySignedBitcoinTransaction
+    func `finish`(`wallet`: Wallet) throws -> PartiallySignedTransaction
     
 }
 
@@ -586,14 +586,14 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
     
     rustCall() {
     
-    bdk_1724_BumpFeeTxBuilder_new(
+    bdk_1cc_BumpFeeTxBuilder_new(
         FfiConverterString.lower(`txid`), 
         FfiConverterFloat.lower(`newFeeRate`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_BumpFeeTxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_BumpFeeTxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -604,7 +604,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
         FfiConverterString.lower(`address`), $0
     )
 }
@@ -615,7 +615,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
+    bdk_1cc_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -625,17 +625,17 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
         )
     }
-    public func `finish`(`wallet`: Wallet) throws -> PartiallySignedBitcoinTransaction {
-        return try FfiConverterTypePartiallySignedBitcoinTransaction.lift(
+    public func `finish`(`wallet`: Wallet) throws -> PartiallySignedTransaction {
+        return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_BumpFeeTxBuilder_finish(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -694,13 +694,13 @@ public class DerivationPath: DerivationPathProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_1724_DerivationPath_new(
+    bdk_1cc_DerivationPath_new(
         FfiConverterString.lower(`path`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_DerivationPath_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DerivationPath_object_free(pointer, $0) }
     }
 
     
@@ -743,7 +743,7 @@ fileprivate struct FfiConverterTypeDerivationPath: FfiConverter {
 
 public protocol DescriptorPublicKeyProtocol {
     func `derive`(`path`: DerivationPath) throws -> DescriptorPublicKey
-    func `extend`(`path`: DerivationPath)  -> DescriptorPublicKey
+    func `extend`(`path`: DerivationPath) throws -> DescriptorPublicKey
     func `asString`()  -> String
     
 }
@@ -759,9 +759,19 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_DescriptorPublicKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DescriptorPublicKey_object_free(pointer, $0) }
     }
 
+    
+    public static func `fromString`(`publicKey`: String) throws -> DescriptorPublicKey {
+        return DescriptorPublicKey(unsafeFromRawPointer: try
+    
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    
+    bdk_1cc_DescriptorPublicKey_from_string(
+        FfiConverterString.lower(`publicKey`), $0)
+})
+    }
     
 
     
@@ -769,18 +779,17 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
         return try FfiConverterTypeDescriptorPublicKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_DescriptorPublicKey_derive(self.pointer, 
+    bdk_1cc_DescriptorPublicKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
         )
     }
-    public func `extend`(`path`: DerivationPath)  -> DescriptorPublicKey {
-        return try! FfiConverterTypeDescriptorPublicKey.lift(
-            try!
-    rustCall() {
-    
-    bdk_1724_DescriptorPublicKey_extend(self.pointer, 
+    public func `extend`(`path`: DerivationPath) throws -> DescriptorPublicKey {
+        return try FfiConverterTypeDescriptorPublicKey.lift(
+            try
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    bdk_1cc_DescriptorPublicKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -791,7 +800,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
             try!
     rustCall() {
     
-    bdk_1724_DescriptorPublicKey_as_string(self.pointer, $0
+    bdk_1cc_DescriptorPublicKey_as_string(self.pointer, $0
     )
 }
         )
@@ -833,7 +842,7 @@ fileprivate struct FfiConverterTypeDescriptorPublicKey: FfiConverter {
 
 public protocol DescriptorSecretKeyProtocol {
     func `derive`(`path`: DerivationPath) throws -> DescriptorSecretKey
-    func `extend`(`path`: DerivationPath)  -> DescriptorSecretKey
+    func `extend`(`path`: DerivationPath) throws -> DescriptorSecretKey
     func `asPublic`()  -> DescriptorPublicKey
     func `secretBytes`()  -> [UInt8]
     func `asString`()  -> String
@@ -849,22 +858,32 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
-    public convenience init(`network`: Network, `mnemonic`: String, `password`: String?) throws {
-        self.init(unsafeFromRawPointer: try
+    public convenience init(`network`: Network, `mnemonic`: Mnemonic, `password`: String?)  {
+        self.init(unsafeFromRawPointer: try!
     
-    rustCallWithError(FfiConverterTypeBdkError.self) {
+    rustCall() {
     
-    bdk_1724_DescriptorSecretKey_new(
+    bdk_1cc_DescriptorSecretKey_new(
         FfiConverterTypeNetwork.lower(`network`), 
-        FfiConverterString.lower(`mnemonic`), 
+        FfiConverterTypeMnemonic.lower(`mnemonic`), 
         FfiConverterOptionString.lower(`password`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_DescriptorSecretKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DescriptorSecretKey_object_free(pointer, $0) }
     }
 
+    
+    public static func `fromString`(`secretKey`: String) throws -> DescriptorSecretKey {
+        return DescriptorSecretKey(unsafeFromRawPointer: try
+    
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    
+    bdk_1cc_DescriptorSecretKey_from_string(
+        FfiConverterString.lower(`secretKey`), $0)
+})
+    }
     
 
     
@@ -872,18 +891,17 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
         return try FfiConverterTypeDescriptorSecretKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_DescriptorSecretKey_derive(self.pointer, 
+    bdk_1cc_DescriptorSecretKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
         )
     }
-    public func `extend`(`path`: DerivationPath)  -> DescriptorSecretKey {
-        return try! FfiConverterTypeDescriptorSecretKey.lift(
-            try!
-    rustCall() {
-    
-    bdk_1724_DescriptorSecretKey_extend(self.pointer, 
+    public func `extend`(`path`: DerivationPath) throws -> DescriptorSecretKey {
+        return try FfiConverterTypeDescriptorSecretKey.lift(
+            try
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    bdk_1cc_DescriptorSecretKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -894,7 +912,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_1724_DescriptorSecretKey_as_public(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_as_public(self.pointer, $0
     )
 }
         )
@@ -904,7 +922,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_1724_DescriptorSecretKey_secret_bytes(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_secret_bytes(self.pointer, $0
     )
 }
         )
@@ -914,7 +932,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_1724_DescriptorSecretKey_as_string(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_as_string(self.pointer, $0
     )
 }
         )
@@ -954,15 +972,190 @@ fileprivate struct FfiConverterTypeDescriptorSecretKey: FfiConverter {
 }
 
 
-public protocol PartiallySignedBitcoinTransactionProtocol {
-    func `serialize`()  -> String
-    func `txid`()  -> String
-    func `extractTx`()  -> [UInt8]
-    func `combine`(`other`: PartiallySignedBitcoinTransaction) throws -> PartiallySignedBitcoinTransaction
+public protocol FeeRateProtocol {
+    func `asSatPerVb`()  -> Float
     
 }
 
-public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactionProtocol {
+public class FeeRate: FeeRateProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    deinit {
+        try! rustCall { ffi_bdk_1cc_FeeRate_object_free(pointer, $0) }
+    }
+
+    
+    public static func `fromSatPerVb`(`satPerVb`: Float)  -> FeeRate {
+        return FeeRate(unsafeFromRawPointer: try!
+    
+    rustCall() {
+    
+    bdk_1cc_FeeRate_from_sat_per_vb(
+        FfiConverterFloat.lower(`satPerVb`), $0)
+})
+    }
+    
+
+    
+    public func `asSatPerVb`()  -> Float {
+        return try! FfiConverterFloat.lift(
+            try!
+    rustCall() {
+    
+    bdk_1cc_FeeRate_as_sat_per_vb(self.pointer, $0
+    )
+}
+        )
+    }
+    
+}
+
+
+fileprivate struct FfiConverterTypeFeeRate: FfiConverter {
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = FeeRate
+
+    static func read(from buf: Reader) throws -> FeeRate {
+        let v: UInt64 = try buf.readInt()
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    static func write(_ value: FeeRate, into buf: Writer) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        buf.writeInt(UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+
+    static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FeeRate {
+        return FeeRate(unsafeFromRawPointer: pointer)
+    }
+
+    static func lower(_ value: FeeRate) -> UnsafeMutableRawPointer {
+        return value.pointer
+    }
+}
+
+
+public protocol MnemonicProtocol {
+    func `asString`()  -> String
+    
+}
+
+public class Mnemonic: MnemonicProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+    public convenience init(`wordCount`: WordCount)  {
+        self.init(unsafeFromRawPointer: try!
+    
+    rustCall() {
+    
+    bdk_1cc_Mnemonic_new(
+        FfiConverterTypeWordCount.lower(`wordCount`), $0)
+})
+    }
+
+    deinit {
+        try! rustCall { ffi_bdk_1cc_Mnemonic_object_free(pointer, $0) }
+    }
+
+    
+    public static func `fromString`(`mnemonic`: String) throws -> Mnemonic {
+        return Mnemonic(unsafeFromRawPointer: try
+    
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    
+    bdk_1cc_Mnemonic_from_string(
+        FfiConverterString.lower(`mnemonic`), $0)
+})
+    }
+    
+    public static func `fromEntropy`(`entropy`: [UInt8]) throws -> Mnemonic {
+        return Mnemonic(unsafeFromRawPointer: try
+    
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    
+    bdk_1cc_Mnemonic_from_entropy(
+        FfiConverterSequenceUInt8.lower(`entropy`), $0)
+})
+    }
+    
+
+    
+    public func `asString`()  -> String {
+        return try! FfiConverterString.lift(
+            try!
+    rustCall() {
+    
+    bdk_1cc_Mnemonic_as_string(self.pointer, $0
+    )
+}
+        )
+    }
+    
+}
+
+
+fileprivate struct FfiConverterTypeMnemonic: FfiConverter {
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = Mnemonic
+
+    static func read(from buf: Reader) throws -> Mnemonic {
+        let v: UInt64 = try buf.readInt()
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    static func write(_ value: Mnemonic, into buf: Writer) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        buf.writeInt(UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+
+    static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Mnemonic {
+        return Mnemonic(unsafeFromRawPointer: pointer)
+    }
+
+    static func lower(_ value: Mnemonic) -> UnsafeMutableRawPointer {
+        return value.pointer
+    }
+}
+
+
+public protocol PartiallySignedTransactionProtocol {
+    func `serialize`()  -> String
+    func `txid`()  -> String
+    func `extractTx`()  -> [UInt8]
+    func `combine`(`other`: PartiallySignedTransaction) throws -> PartiallySignedTransaction
+    func `feeAmount`()  -> UInt64?
+    func `feeRate`()  -> FeeRate?
+    
+}
+
+public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer
 
     // TODO: We'd like this to be `private` but for Swifty reasons,
@@ -976,13 +1169,13 @@ public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactio
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_1724_PartiallySignedBitcoinTransaction_new(
+    bdk_1cc_PartiallySignedTransaction_new(
         FfiConverterString.lower(`psbtBase64`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_PartiallySignedBitcoinTransaction_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_PartiallySignedTransaction_object_free(pointer, $0) }
     }
 
     
@@ -993,7 +1186,7 @@ public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactio
             try!
     rustCall() {
     
-    bdk_1724_PartiallySignedBitcoinTransaction_serialize(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_serialize(self.pointer, $0
     )
 }
         )
@@ -1003,7 +1196,7 @@ public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactio
             try!
     rustCall() {
     
-    bdk_1724_PartiallySignedBitcoinTransaction_txid(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_txid(self.pointer, $0
     )
 }
         )
@@ -1013,17 +1206,37 @@ public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactio
             try!
     rustCall() {
     
-    bdk_1724_PartiallySignedBitcoinTransaction_extract_tx(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_extract_tx(self.pointer, $0
     )
 }
         )
     }
-    public func `combine`(`other`: PartiallySignedBitcoinTransaction) throws -> PartiallySignedBitcoinTransaction {
-        return try FfiConverterTypePartiallySignedBitcoinTransaction.lift(
+    public func `combine`(`other`: PartiallySignedTransaction) throws -> PartiallySignedTransaction {
+        return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_PartiallySignedBitcoinTransaction_combine(self.pointer, 
-        FfiConverterTypePartiallySignedBitcoinTransaction.lower(`other`), $0
+    bdk_1cc_PartiallySignedTransaction_combine(self.pointer, 
+        FfiConverterTypePartiallySignedTransaction.lower(`other`), $0
+    )
+}
+        )
+    }
+    public func `feeAmount`()  -> UInt64? {
+        return try! FfiConverterOptionUInt64.lift(
+            try!
+    rustCall() {
+    
+    bdk_1cc_PartiallySignedTransaction_fee_amount(self.pointer, $0
+    )
+}
+        )
+    }
+    public func `feeRate`()  -> FeeRate? {
+        return try! FfiConverterOptionTypeFeeRate.lift(
+            try!
+    rustCall() {
+    
+    bdk_1cc_PartiallySignedTransaction_fee_rate(self.pointer, $0
     )
 }
         )
@@ -1032,11 +1245,11 @@ public class PartiallySignedBitcoinTransaction: PartiallySignedBitcoinTransactio
 }
 
 
-fileprivate struct FfiConverterTypePartiallySignedBitcoinTransaction: FfiConverter {
+fileprivate struct FfiConverterTypePartiallySignedTransaction: FfiConverter {
     typealias FfiType = UnsafeMutableRawPointer
-    typealias SwiftType = PartiallySignedBitcoinTransaction
+    typealias SwiftType = PartiallySignedTransaction
 
-    static func read(from buf: Reader) throws -> PartiallySignedBitcoinTransaction {
+    static func read(from buf: Reader) throws -> PartiallySignedTransaction {
         let v: UInt64 = try buf.readInt()
         // The Rust code won't compile if a pointer won't fit in a UInt64.
         // We have to go via `UInt` because that's the thing that's the size of a pointer.
@@ -1047,17 +1260,17 @@ fileprivate struct FfiConverterTypePartiallySignedBitcoinTransaction: FfiConvert
         return try lift(ptr!)
     }
 
-    static func write(_ value: PartiallySignedBitcoinTransaction, into buf: Writer) {
+    static func write(_ value: PartiallySignedTransaction, into buf: Writer) {
         // This fiddling is because `Int` is the thing that's the same size as a pointer.
         // The Rust code won't compile if a pointer won't fit in a `UInt64`.
         buf.writeInt(UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
     }
 
-    static func lift(_ pointer: UnsafeMutableRawPointer) throws -> PartiallySignedBitcoinTransaction {
-        return PartiallySignedBitcoinTransaction(unsafeFromRawPointer: pointer)
+    static func lift(_ pointer: UnsafeMutableRawPointer) throws -> PartiallySignedTransaction {
+        return PartiallySignedTransaction(unsafeFromRawPointer: pointer)
     }
 
-    static func lower(_ value: PartiallySignedBitcoinTransaction) -> UnsafeMutableRawPointer {
+    static func lower(_ value: PartiallySignedTransaction) -> UnsafeMutableRawPointer {
         return value.pointer
     }
 }
@@ -1081,13 +1294,13 @@ public class Script: ScriptProtocol {
     
     rustCall() {
     
-    bdk_1724_Script_new(
+    bdk_1cc_Script_new(
         FfiConverterSequenceUInt8.lower(`rawOutputScript`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_Script_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Script_object_free(pointer, $0) }
     }
 
     
@@ -1163,12 +1376,12 @@ public class TxBuilder: TxBuilderProtocol {
     
     rustCall() {
     
-    bdk_1724_TxBuilder_new($0)
+    bdk_1cc_TxBuilder_new($0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_TxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_TxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -1179,7 +1392,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_add_recipient(self.pointer, 
+    bdk_1cc_TxBuilder_add_recipient(self.pointer, 
         FfiConverterTypeScript.lower(`script`), 
         FfiConverterUInt64.lower(`amount`), $0
     )
@@ -1191,7 +1404,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_add_unspendable(self.pointer, 
+    bdk_1cc_TxBuilder_add_unspendable(self.pointer, 
         FfiConverterTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1202,7 +1415,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_add_utxo(self.pointer, 
+    bdk_1cc_TxBuilder_add_utxo(self.pointer, 
         FfiConverterTypeOutPoint.lower(`outpoint`), $0
     )
 }
@@ -1213,7 +1426,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_add_utxos(self.pointer, 
+    bdk_1cc_TxBuilder_add_utxos(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`outpoints`), $0
     )
 }
@@ -1224,7 +1437,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_do_not_spend_change(self.pointer, $0
+    bdk_1cc_TxBuilder_do_not_spend_change(self.pointer, $0
     )
 }
         )
@@ -1234,7 +1447,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_manually_selected_only(self.pointer, $0
+    bdk_1cc_TxBuilder_manually_selected_only(self.pointer, $0
     )
 }
         )
@@ -1244,7 +1457,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_only_spend_change(self.pointer, $0
+    bdk_1cc_TxBuilder_only_spend_change(self.pointer, $0
     )
 }
         )
@@ -1254,7 +1467,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_unspendable(self.pointer, 
+    bdk_1cc_TxBuilder_unspendable(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1265,7 +1478,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_fee_rate(self.pointer, 
+    bdk_1cc_TxBuilder_fee_rate(self.pointer, 
         FfiConverterFloat.lower(`satPerVbyte`), $0
     )
 }
@@ -1276,7 +1489,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_fee_absolute(self.pointer, 
+    bdk_1cc_TxBuilder_fee_absolute(self.pointer, 
         FfiConverterUInt64.lower(`feeAmount`), $0
     )
 }
@@ -1287,7 +1500,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_drain_wallet(self.pointer, $0
+    bdk_1cc_TxBuilder_drain_wallet(self.pointer, $0
     )
 }
         )
@@ -1297,7 +1510,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_drain_to(self.pointer, 
+    bdk_1cc_TxBuilder_drain_to(self.pointer, 
         FfiConverterString.lower(`address`), $0
     )
 }
@@ -1308,7 +1521,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_enable_rbf(self.pointer, $0
+    bdk_1cc_TxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -1318,7 +1531,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_1cc_TxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
@@ -1329,7 +1542,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_add_data(self.pointer, 
+    bdk_1cc_TxBuilder_add_data(self.pointer, 
         FfiConverterSequenceUInt8.lower(`data`), $0
     )
 }
@@ -1340,7 +1553,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_1724_TxBuilder_set_recipients(self.pointer, 
+    bdk_1cc_TxBuilder_set_recipients(self.pointer, 
         FfiConverterSequenceTypeScriptAmount.lower(`recipients`), $0
     )
 }
@@ -1350,7 +1563,7 @@ public class TxBuilder: TxBuilderProtocol {
         return try FfiConverterTypeTxBuilderResult.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_TxBuilder_finish(self.pointer, 
+    bdk_1cc_TxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -1394,7 +1607,7 @@ fileprivate struct FfiConverterTypeTxBuilder: FfiConverter {
 public protocol WalletProtocol {
     func `getAddress`(`addressIndex`: AddressIndex) throws -> AddressInfo
     func `getBalance`() throws -> Balance
-    func `sign`(`psbt`: PartiallySignedBitcoinTransaction) throws -> Bool
+    func `sign`(`psbt`: PartiallySignedTransaction) throws -> Bool
     func `listTransactions`() throws -> [TransactionDetails]
     func `network`()  -> Network
     func `sync`(`blockchain`: Blockchain, `progress`: Progress?) throws
@@ -1416,7 +1629,7 @@ public class Wallet: WalletProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_1724_Wallet_new(
+    bdk_1cc_Wallet_new(
         FfiConverterString.lower(`descriptor`), 
         FfiConverterOptionString.lower(`changeDescriptor`), 
         FfiConverterTypeNetwork.lower(`network`), 
@@ -1425,7 +1638,7 @@ public class Wallet: WalletProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_1724_Wallet_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Wallet_object_free(pointer, $0) }
     }
 
     
@@ -1435,7 +1648,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeAddressInfo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_get_address(self.pointer, 
+    bdk_1cc_Wallet_get_address(self.pointer, 
         FfiConverterTypeAddressIndex.lower(`addressIndex`), $0
     )
 }
@@ -1445,17 +1658,17 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeBalance.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_get_balance(self.pointer, $0
+    bdk_1cc_Wallet_get_balance(self.pointer, $0
     )
 }
         )
     }
-    public func `sign`(`psbt`: PartiallySignedBitcoinTransaction) throws -> Bool {
+    public func `sign`(`psbt`: PartiallySignedTransaction) throws -> Bool {
         return try FfiConverterBool.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_sign(self.pointer, 
-        FfiConverterTypePartiallySignedBitcoinTransaction.lower(`psbt`), $0
+    bdk_1cc_Wallet_sign(self.pointer, 
+        FfiConverterTypePartiallySignedTransaction.lower(`psbt`), $0
     )
 }
         )
@@ -1464,7 +1677,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeTransactionDetails.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_list_transactions(self.pointer, $0
+    bdk_1cc_Wallet_list_transactions(self.pointer, $0
     )
 }
         )
@@ -1474,7 +1687,7 @@ public class Wallet: WalletProtocol {
             try!
     rustCall() {
     
-    bdk_1724_Wallet_network(self.pointer, $0
+    bdk_1cc_Wallet_network(self.pointer, $0
     )
 }
         )
@@ -1482,7 +1695,7 @@ public class Wallet: WalletProtocol {
     public func `sync`(`blockchain`: Blockchain, `progress`: Progress?) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_sync(self.pointer, 
+    bdk_1cc_Wallet_sync(self.pointer, 
         FfiConverterTypeBlockchain.lower(`blockchain`), 
         FfiConverterOptionCallbackInterfaceProgress.lower(`progress`), $0
     )
@@ -1492,7 +1705,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeLocalUtxo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_1724_Wallet_list_unspent(self.pointer, $0
+    bdk_1cc_Wallet_list_unspent(self.pointer, $0
     )
 }
         )
@@ -2134,12 +2347,12 @@ fileprivate struct FfiConverterTypeTransactionDetails: FfiConverterRustBuffer {
 
 
 public struct TxBuilderResult {
-    public var `psbt`: PartiallySignedBitcoinTransaction
+    public var `psbt`: PartiallySignedTransaction
     public var `transactionDetails`: TransactionDetails
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(`psbt`: PartiallySignedBitcoinTransaction, `transactionDetails`: TransactionDetails) {
+    public init(`psbt`: PartiallySignedTransaction, `transactionDetails`: TransactionDetails) {
         self.`psbt` = `psbt`
         self.`transactionDetails` = `transactionDetails`
     }
@@ -2150,13 +2363,13 @@ public struct TxBuilderResult {
 fileprivate struct FfiConverterTypeTxBuilderResult: FfiConverterRustBuffer {
     fileprivate static func read(from buf: Reader) throws -> TxBuilderResult {
         return try TxBuilderResult(
-            `psbt`: FfiConverterTypePartiallySignedBitcoinTransaction.read(from: buf), 
+            `psbt`: FfiConverterTypePartiallySignedTransaction.read(from: buf), 
             `transactionDetails`: FfiConverterTypeTransactionDetails.read(from: buf)
         )
     }
 
     fileprivate static func write(_ value: TxBuilderResult, into buf: Writer) {
-        FfiConverterTypePartiallySignedBitcoinTransaction.write(value.`psbt`, into: buf)
+        FfiConverterTypePartiallySignedTransaction.write(value.`psbt`, into: buf)
         FfiConverterTypeTransactionDetails.write(value.`transactionDetails`, into: buf)
     }
 }
@@ -2603,13 +2816,13 @@ public enum BdkError {
     case Descriptor(message: String)
     
     // Simple error enums only carry a message
-    case AddressValidator(message: String)
-    
-    // Simple error enums only carry a message
     case Encode(message: String)
     
     // Simple error enums only carry a message
     case Miniscript(message: String)
+    
+    // Simple error enums only carry a message
+    case MiniscriptPsbt(message: String)
     
     // Simple error enums only carry a message
     case Bip32(message: String)
@@ -2765,15 +2978,15 @@ fileprivate struct FfiConverterTypeBdkError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: buf)
         )
         
-        case 29: return .AddressValidator(
+        case 29: return .Encode(
             message: try FfiConverterString.read(from: buf)
         )
         
-        case 30: return .Encode(
+        case 30: return .Miniscript(
             message: try FfiConverterString.read(from: buf)
         )
         
-        case 31: return .Miniscript(
+        case 31: return .MiniscriptPsbt(
             message: try FfiConverterString.read(from: buf)
         )
         
@@ -2912,13 +3125,13 @@ fileprivate struct FfiConverterTypeBdkError: FfiConverterRustBuffer {
         case let .Descriptor(message):
             buf.writeInt(Int32(28))
             FfiConverterString.write(message, into: buf)
-        case let .AddressValidator(message):
+        case let .Encode(message):
             buf.writeInt(Int32(29))
             FfiConverterString.write(message, into: buf)
-        case let .Encode(message):
+        case let .Miniscript(message):
             buf.writeInt(Int32(30))
             FfiConverterString.write(message, into: buf)
-        case let .Miniscript(message):
+        case let .MiniscriptPsbt(message):
             buf.writeInt(Int32(31))
             FfiConverterString.write(message, into: buf)
         case let .Bip32(message):
@@ -3089,7 +3302,7 @@ fileprivate struct FfiConverterCallbackInterfaceProgress {
     private static var callbackInitialized = false
     private static func initCallback() {
         try! rustCall { (err: UnsafeMutablePointer<RustCallStatus>) in
-                ffi_bdk_1724_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
+                ffi_bdk_1cc_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
         }
     }
     private static func ensureCallbackinitialized() {
@@ -3194,6 +3407,27 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try buf.readInt() as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+fileprivate struct FfiConverterOptionTypeFeeRate: FfiConverterRustBuffer {
+    typealias SwiftType = FeeRate?
+
+    static func write(_ value: SwiftType, into buf: Writer) {
+        guard let value = value else {
+            buf.writeInt(Int8(0))
+            return
+        }
+        buf.writeInt(Int8(1))
+        FfiConverterTypeFeeRate.write(value, into: buf)
+    }
+
+    static func read(from buf: Reader) throws -> SwiftType {
+        switch try buf.readInt() as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeeRate.read(from: buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3350,20 +3584,6 @@ fileprivate struct FfiConverterSequenceTypeTransactionDetails: FfiConverterRustB
         return seq
     }
 }
-
-public func `generateMnemonic`(`wordCount`: WordCount) throws -> String {
-    return try FfiConverterString.lift(
-        try
-    
-    rustCallWithError(FfiConverterTypeBdkError.self) {
-    
-    bdk_1724_generate_mnemonic(
-        FfiConverterTypeWordCount.lower(`wordCount`), $0)
-}
-    )
-}
-
-
 
 /**
  * Top level initializers and tear down methods.
