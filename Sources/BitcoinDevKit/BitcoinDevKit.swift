@@ -19,13 +19,13 @@ fileprivate extension RustBuffer {
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
-        try! rustCall { ffi_bdk_cd24_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
+        try! rustCall { ffi_bdk_1cc_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
     }
 
     // Frees the buffer in place.
     // The buffer must not be used after this is called.
     func deallocate() {
-        try! rustCall { ffi_bdk_cd24_rustbuffer_free(self, $0) }
+        try! rustCall { ffi_bdk_1cc_rustbuffer_free(self, $0) }
     }
 }
 
@@ -412,13 +412,13 @@ public class Address: AddressProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_Address_new(
+    bdk_1cc_Address_new(
         FfiConverterString.lower(`address`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_Address_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Address_object_free(pointer, $0) }
     }
 
     
@@ -429,7 +429,7 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_Address_script_pubkey(self.pointer, $0
+    bdk_1cc_Address_script_pubkey(self.pointer, $0
     )
 }
         )
@@ -490,13 +490,13 @@ public class Blockchain: BlockchainProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_Blockchain_new(
+    bdk_1cc_Blockchain_new(
         FfiConverterTypeBlockchainConfig.lower(`config`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_Blockchain_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Blockchain_object_free(pointer, $0) }
     }
 
     
@@ -505,7 +505,7 @@ public class Blockchain: BlockchainProtocol {
     public func `broadcast`(`psbt`: PartiallySignedTransaction) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Blockchain_broadcast(self.pointer, 
+    bdk_1cc_Blockchain_broadcast(self.pointer, 
         FfiConverterTypePartiallySignedTransaction.lower(`psbt`), $0
     )
 }
@@ -514,7 +514,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterUInt32.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Blockchain_get_height(self.pointer, $0
+    bdk_1cc_Blockchain_get_height(self.pointer, $0
     )
 }
         )
@@ -523,7 +523,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterString.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Blockchain_get_block_hash(self.pointer, 
+    bdk_1cc_Blockchain_get_block_hash(self.pointer, 
         FfiConverterUInt32.lower(`height`), $0
     )
 }
@@ -586,14 +586,14 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
     
     rustCall() {
     
-    bdk_cd24_BumpFeeTxBuilder_new(
+    bdk_1cc_BumpFeeTxBuilder_new(
         FfiConverterString.lower(`txid`), 
         FfiConverterFloat.lower(`newFeeRate`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_BumpFeeTxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_BumpFeeTxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -604,7 +604,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
         FfiConverterString.lower(`address`), $0
     )
 }
@@ -615,7 +615,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
+    bdk_1cc_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -625,7 +625,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
@@ -635,7 +635,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
         return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_BumpFeeTxBuilder_finish(self.pointer, 
+    bdk_1cc_BumpFeeTxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -694,13 +694,13 @@ public class DerivationPath: DerivationPathProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_DerivationPath_new(
+    bdk_1cc_DerivationPath_new(
         FfiConverterString.lower(`path`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_DerivationPath_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DerivationPath_object_free(pointer, $0) }
     }
 
     
@@ -741,169 +741,6 @@ fileprivate struct FfiConverterTypeDerivationPath: FfiConverter {
 }
 
 
-public protocol DescriptorProtocol {
-    func `asString`()  -> String
-    func `asStringPrivate`()  -> String
-    
-}
-
-public class Descriptor: DescriptorProtocol {
-    fileprivate let pointer: UnsafeMutableRawPointer
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
-    }
-    public convenience init(`descriptor`: String, `network`: Network) throws {
-        self.init(unsafeFromRawPointer: try
-    
-    rustCallWithError(FfiConverterTypeBdkError.self) {
-    
-    bdk_cd24_Descriptor_new(
-        FfiConverterString.lower(`descriptor`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-
-    deinit {
-        try! rustCall { ffi_bdk_cd24_Descriptor_object_free(pointer, $0) }
-    }
-
-    
-    public static func `newBip44`(`secretKey`: DescriptorSecretKey, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip44(
-        FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-    public static func `newBip44Public`(`publicKey`: DescriptorPublicKey, `fingerprint`: String, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip44_public(
-        FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
-        FfiConverterString.lower(`fingerprint`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-    public static func `newBip49`(`secretKey`: DescriptorSecretKey, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip49(
-        FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-    public static func `newBip49Public`(`publicKey`: DescriptorPublicKey, `fingerprint`: String, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip49_public(
-        FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
-        FfiConverterString.lower(`fingerprint`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-    public static func `newBip84`(`secretKey`: DescriptorSecretKey, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip84(
-        FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-    public static func `newBip84Public`(`publicKey`: DescriptorPublicKey, `fingerprint`: String, `keychain`: KeychainKind, `network`: Network)  -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: try!
-    
-    rustCall() {
-    
-    bdk_cd24_Descriptor_new_bip84_public(
-        FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
-        FfiConverterString.lower(`fingerprint`), 
-        FfiConverterTypeKeychainKind.lower(`keychain`), 
-        FfiConverterTypeNetwork.lower(`network`), $0)
-})
-    }
-    
-
-    
-    public func `asString`()  -> String {
-        return try! FfiConverterString.lift(
-            try!
-    rustCall() {
-    
-    bdk_cd24_Descriptor_as_string(self.pointer, $0
-    )
-}
-        )
-    }
-    public func `asStringPrivate`()  -> String {
-        return try! FfiConverterString.lift(
-            try!
-    rustCall() {
-    
-    bdk_cd24_Descriptor_as_string_private(self.pointer, $0
-    )
-}
-        )
-    }
-    
-}
-
-
-fileprivate struct FfiConverterTypeDescriptor: FfiConverter {
-    typealias FfiType = UnsafeMutableRawPointer
-    typealias SwiftType = Descriptor
-
-    static func read(from buf: Reader) throws -> Descriptor {
-        let v: UInt64 = try buf.readInt()
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
-    }
-
-    static func write(_ value: Descriptor, into buf: Writer) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        buf.writeInt(UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
-    }
-
-    static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Descriptor {
-        return Descriptor(unsafeFromRawPointer: pointer)
-    }
-
-    static func lower(_ value: Descriptor) -> UnsafeMutableRawPointer {
-        return value.pointer
-    }
-}
-
-
 public protocol DescriptorPublicKeyProtocol {
     func `derive`(`path`: DerivationPath) throws -> DescriptorPublicKey
     func `extend`(`path`: DerivationPath) throws -> DescriptorPublicKey
@@ -922,7 +759,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_DescriptorPublicKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DescriptorPublicKey_object_free(pointer, $0) }
     }
 
     
@@ -931,7 +768,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_DescriptorPublicKey_from_string(
+    bdk_1cc_DescriptorPublicKey_from_string(
         FfiConverterString.lower(`publicKey`), $0)
 })
     }
@@ -942,7 +779,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
         return try FfiConverterTypeDescriptorPublicKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_DescriptorPublicKey_derive(self.pointer, 
+    bdk_1cc_DescriptorPublicKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -952,7 +789,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
         return try FfiConverterTypeDescriptorPublicKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_DescriptorPublicKey_extend(self.pointer, 
+    bdk_1cc_DescriptorPublicKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -963,7 +800,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_DescriptorPublicKey_as_string(self.pointer, $0
+    bdk_1cc_DescriptorPublicKey_as_string(self.pointer, $0
     )
 }
         )
@@ -1026,7 +863,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     
     rustCall() {
     
-    bdk_cd24_DescriptorSecretKey_new(
+    bdk_1cc_DescriptorSecretKey_new(
         FfiConverterTypeNetwork.lower(`network`), 
         FfiConverterTypeMnemonic.lower(`mnemonic`), 
         FfiConverterOptionString.lower(`password`), $0)
@@ -1034,7 +871,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_DescriptorSecretKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_DescriptorSecretKey_object_free(pointer, $0) }
     }
 
     
@@ -1043,7 +880,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_DescriptorSecretKey_from_string(
+    bdk_1cc_DescriptorSecretKey_from_string(
         FfiConverterString.lower(`secretKey`), $0)
 })
     }
@@ -1054,7 +891,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
         return try FfiConverterTypeDescriptorSecretKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_DescriptorSecretKey_derive(self.pointer, 
+    bdk_1cc_DescriptorSecretKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1064,7 +901,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
         return try FfiConverterTypeDescriptorSecretKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_DescriptorSecretKey_extend(self.pointer, 
+    bdk_1cc_DescriptorSecretKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1075,7 +912,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_DescriptorSecretKey_as_public(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_as_public(self.pointer, $0
     )
 }
         )
@@ -1085,7 +922,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_DescriptorSecretKey_secret_bytes(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_secret_bytes(self.pointer, $0
     )
 }
         )
@@ -1095,7 +932,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_DescriptorSecretKey_as_string(self.pointer, $0
+    bdk_1cc_DescriptorSecretKey_as_string(self.pointer, $0
     )
 }
         )
@@ -1151,7 +988,7 @@ public class FeeRate: FeeRateProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_FeeRate_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_FeeRate_object_free(pointer, $0) }
     }
 
     
@@ -1160,7 +997,7 @@ public class FeeRate: FeeRateProtocol {
     
     rustCall() {
     
-    bdk_cd24_FeeRate_from_sat_per_vb(
+    bdk_1cc_FeeRate_from_sat_per_vb(
         FfiConverterFloat.lower(`satPerVb`), $0)
 })
     }
@@ -1172,7 +1009,7 @@ public class FeeRate: FeeRateProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_FeeRate_as_sat_per_vb(self.pointer, $0
+    bdk_1cc_FeeRate_as_sat_per_vb(self.pointer, $0
     )
 }
         )
@@ -1231,13 +1068,13 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCall() {
     
-    bdk_cd24_Mnemonic_new(
+    bdk_1cc_Mnemonic_new(
         FfiConverterTypeWordCount.lower(`wordCount`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_Mnemonic_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Mnemonic_object_free(pointer, $0) }
     }
 
     
@@ -1246,7 +1083,7 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_Mnemonic_from_string(
+    bdk_1cc_Mnemonic_from_string(
         FfiConverterString.lower(`mnemonic`), $0)
 })
     }
@@ -1256,7 +1093,7 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_Mnemonic_from_entropy(
+    bdk_1cc_Mnemonic_from_entropy(
         FfiConverterSequenceUInt8.lower(`entropy`), $0)
 })
     }
@@ -1268,7 +1105,7 @@ public class Mnemonic: MnemonicProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_Mnemonic_as_string(self.pointer, $0
+    bdk_1cc_Mnemonic_as_string(self.pointer, $0
     )
 }
         )
@@ -1332,13 +1169,13 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_PartiallySignedTransaction_new(
+    bdk_1cc_PartiallySignedTransaction_new(
         FfiConverterString.lower(`psbtBase64`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_PartiallySignedTransaction_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_PartiallySignedTransaction_object_free(pointer, $0) }
     }
 
     
@@ -1349,7 +1186,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_PartiallySignedTransaction_serialize(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_serialize(self.pointer, $0
     )
 }
         )
@@ -1359,7 +1196,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_PartiallySignedTransaction_txid(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_txid(self.pointer, $0
     )
 }
         )
@@ -1369,7 +1206,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_PartiallySignedTransaction_extract_tx(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_extract_tx(self.pointer, $0
     )
 }
         )
@@ -1378,7 +1215,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
         return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_PartiallySignedTransaction_combine(self.pointer, 
+    bdk_1cc_PartiallySignedTransaction_combine(self.pointer, 
         FfiConverterTypePartiallySignedTransaction.lower(`other`), $0
     )
 }
@@ -1389,7 +1226,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_PartiallySignedTransaction_fee_amount(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_fee_amount(self.pointer, $0
     )
 }
         )
@@ -1399,7 +1236,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_PartiallySignedTransaction_fee_rate(self.pointer, $0
+    bdk_1cc_PartiallySignedTransaction_fee_rate(self.pointer, $0
     )
 }
         )
@@ -1457,13 +1294,13 @@ public class Script: ScriptProtocol {
     
     rustCall() {
     
-    bdk_cd24_Script_new(
+    bdk_1cc_Script_new(
         FfiConverterSequenceUInt8.lower(`rawOutputScript`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_Script_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Script_object_free(pointer, $0) }
     }
 
     
@@ -1516,7 +1353,7 @@ public protocol TxBuilderProtocol {
     func `feeRate`(`satPerVbyte`: Float)  -> TxBuilder
     func `feeAbsolute`(`feeAmount`: UInt64)  -> TxBuilder
     func `drainWallet`()  -> TxBuilder
-    func `drainTo`(`script`: Script)  -> TxBuilder
+    func `drainTo`(`address`: String)  -> TxBuilder
     func `enableRbf`()  -> TxBuilder
     func `enableRbfWithSequence`(`nsequence`: UInt32)  -> TxBuilder
     func `addData`(`data`: [UInt8])  -> TxBuilder
@@ -1539,12 +1376,12 @@ public class TxBuilder: TxBuilderProtocol {
     
     rustCall() {
     
-    bdk_cd24_TxBuilder_new($0)
+    bdk_1cc_TxBuilder_new($0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_TxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_TxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -1555,7 +1392,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_add_recipient(self.pointer, 
+    bdk_1cc_TxBuilder_add_recipient(self.pointer, 
         FfiConverterTypeScript.lower(`script`), 
         FfiConverterUInt64.lower(`amount`), $0
     )
@@ -1567,7 +1404,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_add_unspendable(self.pointer, 
+    bdk_1cc_TxBuilder_add_unspendable(self.pointer, 
         FfiConverterTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1578,7 +1415,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_add_utxo(self.pointer, 
+    bdk_1cc_TxBuilder_add_utxo(self.pointer, 
         FfiConverterTypeOutPoint.lower(`outpoint`), $0
     )
 }
@@ -1589,7 +1426,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_add_utxos(self.pointer, 
+    bdk_1cc_TxBuilder_add_utxos(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`outpoints`), $0
     )
 }
@@ -1600,7 +1437,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_do_not_spend_change(self.pointer, $0
+    bdk_1cc_TxBuilder_do_not_spend_change(self.pointer, $0
     )
 }
         )
@@ -1610,7 +1447,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_manually_selected_only(self.pointer, $0
+    bdk_1cc_TxBuilder_manually_selected_only(self.pointer, $0
     )
 }
         )
@@ -1620,7 +1457,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_only_spend_change(self.pointer, $0
+    bdk_1cc_TxBuilder_only_spend_change(self.pointer, $0
     )
 }
         )
@@ -1630,7 +1467,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_unspendable(self.pointer, 
+    bdk_1cc_TxBuilder_unspendable(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1641,7 +1478,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_fee_rate(self.pointer, 
+    bdk_1cc_TxBuilder_fee_rate(self.pointer, 
         FfiConverterFloat.lower(`satPerVbyte`), $0
     )
 }
@@ -1652,7 +1489,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_fee_absolute(self.pointer, 
+    bdk_1cc_TxBuilder_fee_absolute(self.pointer, 
         FfiConverterUInt64.lower(`feeAmount`), $0
     )
 }
@@ -1663,18 +1500,18 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_drain_wallet(self.pointer, $0
+    bdk_1cc_TxBuilder_drain_wallet(self.pointer, $0
     )
 }
         )
     }
-    public func `drainTo`(`script`: Script)  -> TxBuilder {
+    public func `drainTo`(`address`: String)  -> TxBuilder {
         return try! FfiConverterTypeTxBuilder.lift(
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_drain_to(self.pointer, 
-        FfiConverterTypeScript.lower(`script`), $0
+    bdk_1cc_TxBuilder_drain_to(self.pointer, 
+        FfiConverterString.lower(`address`), $0
     )
 }
         )
@@ -1684,7 +1521,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_enable_rbf(self.pointer, $0
+    bdk_1cc_TxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -1694,7 +1531,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_1cc_TxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
@@ -1705,7 +1542,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_add_data(self.pointer, 
+    bdk_1cc_TxBuilder_add_data(self.pointer, 
         FfiConverterSequenceUInt8.lower(`data`), $0
     )
 }
@@ -1716,7 +1553,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_TxBuilder_set_recipients(self.pointer, 
+    bdk_1cc_TxBuilder_set_recipients(self.pointer, 
         FfiConverterSequenceTypeScriptAmount.lower(`recipients`), $0
     )
 }
@@ -1726,7 +1563,7 @@ public class TxBuilder: TxBuilderProtocol {
         return try FfiConverterTypeTxBuilderResult.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_TxBuilder_finish(self.pointer, 
+    bdk_1cc_TxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -1787,21 +1624,21 @@ public class Wallet: WalletProtocol {
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.pointer = pointer
     }
-    public convenience init(`descriptor`: Descriptor, `changeDescriptor`: Descriptor?, `network`: Network, `databaseConfig`: DatabaseConfig) throws {
+    public convenience init(`descriptor`: String, `changeDescriptor`: String?, `network`: Network, `databaseConfig`: DatabaseConfig) throws {
         self.init(unsafeFromRawPointer: try
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_cd24_Wallet_new(
-        FfiConverterTypeDescriptor.lower(`descriptor`), 
-        FfiConverterOptionTypeDescriptor.lower(`changeDescriptor`), 
+    bdk_1cc_Wallet_new(
+        FfiConverterString.lower(`descriptor`), 
+        FfiConverterOptionString.lower(`changeDescriptor`), 
         FfiConverterTypeNetwork.lower(`network`), 
         FfiConverterTypeDatabaseConfig.lower(`databaseConfig`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_cd24_Wallet_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_1cc_Wallet_object_free(pointer, $0) }
     }
 
     
@@ -1811,7 +1648,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeAddressInfo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_get_address(self.pointer, 
+    bdk_1cc_Wallet_get_address(self.pointer, 
         FfiConverterTypeAddressIndex.lower(`addressIndex`), $0
     )
 }
@@ -1821,7 +1658,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeBalance.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_get_balance(self.pointer, $0
+    bdk_1cc_Wallet_get_balance(self.pointer, $0
     )
 }
         )
@@ -1830,7 +1667,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterBool.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_sign(self.pointer, 
+    bdk_1cc_Wallet_sign(self.pointer, 
         FfiConverterTypePartiallySignedTransaction.lower(`psbt`), $0
     )
 }
@@ -1840,7 +1677,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeTransactionDetails.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_list_transactions(self.pointer, $0
+    bdk_1cc_Wallet_list_transactions(self.pointer, $0
     )
 }
         )
@@ -1850,7 +1687,7 @@ public class Wallet: WalletProtocol {
             try!
     rustCall() {
     
-    bdk_cd24_Wallet_network(self.pointer, $0
+    bdk_1cc_Wallet_network(self.pointer, $0
     )
 }
         )
@@ -1858,7 +1695,7 @@ public class Wallet: WalletProtocol {
     public func `sync`(`blockchain`: Blockchain, `progress`: Progress?) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_sync(self.pointer, 
+    bdk_1cc_Wallet_sync(self.pointer, 
         FfiConverterTypeBlockchain.lower(`blockchain`), 
         FfiConverterOptionCallbackInterfaceProgress.lower(`progress`), $0
     )
@@ -1868,7 +1705,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeLocalUtxo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_cd24_Wallet_list_unspent(self.pointer, $0
+    bdk_1cc_Wallet_list_unspent(self.pointer, $0
     )
 }
         )
@@ -2084,17 +1921,15 @@ public struct ElectrumConfig {
     public var `retry`: UInt8
     public var `timeout`: UInt8?
     public var `stopGap`: UInt64
-    public var `validateDomain`: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(`url`: String, `socks5`: String?, `retry`: UInt8, `timeout`: UInt8?, `stopGap`: UInt64, `validateDomain`: Bool) {
+    public init(`url`: String, `socks5`: String?, `retry`: UInt8, `timeout`: UInt8?, `stopGap`: UInt64) {
         self.`url` = `url`
         self.`socks5` = `socks5`
         self.`retry` = `retry`
         self.`timeout` = `timeout`
         self.`stopGap` = `stopGap`
-        self.`validateDomain` = `validateDomain`
     }
 }
 
@@ -2116,9 +1951,6 @@ extension ElectrumConfig: Equatable, Hashable {
         if lhs.`stopGap` != rhs.`stopGap` {
             return false
         }
-        if lhs.`validateDomain` != rhs.`validateDomain` {
-            return false
-        }
         return true
     }
 
@@ -2128,7 +1960,6 @@ extension ElectrumConfig: Equatable, Hashable {
         hasher.combine(`retry`)
         hasher.combine(`timeout`)
         hasher.combine(`stopGap`)
-        hasher.combine(`validateDomain`)
     }
 }
 
@@ -2140,8 +1971,7 @@ fileprivate struct FfiConverterTypeElectrumConfig: FfiConverterRustBuffer {
             `socks5`: FfiConverterOptionString.read(from: buf), 
             `retry`: FfiConverterUInt8.read(from: buf), 
             `timeout`: FfiConverterOptionUInt8.read(from: buf), 
-            `stopGap`: FfiConverterUInt64.read(from: buf), 
-            `validateDomain`: FfiConverterBool.read(from: buf)
+            `stopGap`: FfiConverterUInt64.read(from: buf)
         )
     }
 
@@ -2151,7 +1981,6 @@ fileprivate struct FfiConverterTypeElectrumConfig: FfiConverterRustBuffer {
         FfiConverterUInt8.write(value.`retry`, into: buf)
         FfiConverterOptionUInt8.write(value.`timeout`, into: buf)
         FfiConverterUInt64.write(value.`stopGap`, into: buf)
-        FfiConverterBool.write(value.`validateDomain`, into: buf)
     }
 }
 
@@ -2330,138 +2159,6 @@ fileprivate struct FfiConverterTypeOutPoint: FfiConverterRustBuffer {
     fileprivate static func write(_ value: OutPoint, into buf: Writer) {
         FfiConverterString.write(value.`txid`, into: buf)
         FfiConverterUInt32.write(value.`vout`, into: buf)
-    }
-}
-
-
-public struct RpcConfig {
-    public var `url`: String
-    public var `auth`: Auth
-    public var `network`: Network
-    public var `walletName`: String
-    public var `syncParams`: RpcSyncParams?
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(`url`: String, `auth`: Auth, `network`: Network, `walletName`: String, `syncParams`: RpcSyncParams?) {
-        self.`url` = `url`
-        self.`auth` = `auth`
-        self.`network` = `network`
-        self.`walletName` = `walletName`
-        self.`syncParams` = `syncParams`
-    }
-}
-
-
-extension RpcConfig: Equatable, Hashable {
-    public static func ==(lhs: RpcConfig, rhs: RpcConfig) -> Bool {
-        if lhs.`url` != rhs.`url` {
-            return false
-        }
-        if lhs.`auth` != rhs.`auth` {
-            return false
-        }
-        if lhs.`network` != rhs.`network` {
-            return false
-        }
-        if lhs.`walletName` != rhs.`walletName` {
-            return false
-        }
-        if lhs.`syncParams` != rhs.`syncParams` {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(`url`)
-        hasher.combine(`auth`)
-        hasher.combine(`network`)
-        hasher.combine(`walletName`)
-        hasher.combine(`syncParams`)
-    }
-}
-
-
-fileprivate struct FfiConverterTypeRpcConfig: FfiConverterRustBuffer {
-    fileprivate static func read(from buf: Reader) throws -> RpcConfig {
-        return try RpcConfig(
-            `url`: FfiConverterString.read(from: buf), 
-            `auth`: FfiConverterTypeAuth.read(from: buf), 
-            `network`: FfiConverterTypeNetwork.read(from: buf), 
-            `walletName`: FfiConverterString.read(from: buf), 
-            `syncParams`: FfiConverterOptionTypeRpcSyncParams.read(from: buf)
-        )
-    }
-
-    fileprivate static func write(_ value: RpcConfig, into buf: Writer) {
-        FfiConverterString.write(value.`url`, into: buf)
-        FfiConverterTypeAuth.write(value.`auth`, into: buf)
-        FfiConverterTypeNetwork.write(value.`network`, into: buf)
-        FfiConverterString.write(value.`walletName`, into: buf)
-        FfiConverterOptionTypeRpcSyncParams.write(value.`syncParams`, into: buf)
-    }
-}
-
-
-public struct RpcSyncParams {
-    public var `startScriptCount`: UInt64
-    public var `startTime`: UInt64
-    public var `forceStartTime`: Bool
-    public var `pollRateSec`: UInt64
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(`startScriptCount`: UInt64, `startTime`: UInt64, `forceStartTime`: Bool, `pollRateSec`: UInt64) {
-        self.`startScriptCount` = `startScriptCount`
-        self.`startTime` = `startTime`
-        self.`forceStartTime` = `forceStartTime`
-        self.`pollRateSec` = `pollRateSec`
-    }
-}
-
-
-extension RpcSyncParams: Equatable, Hashable {
-    public static func ==(lhs: RpcSyncParams, rhs: RpcSyncParams) -> Bool {
-        if lhs.`startScriptCount` != rhs.`startScriptCount` {
-            return false
-        }
-        if lhs.`startTime` != rhs.`startTime` {
-            return false
-        }
-        if lhs.`forceStartTime` != rhs.`forceStartTime` {
-            return false
-        }
-        if lhs.`pollRateSec` != rhs.`pollRateSec` {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(`startScriptCount`)
-        hasher.combine(`startTime`)
-        hasher.combine(`forceStartTime`)
-        hasher.combine(`pollRateSec`)
-    }
-}
-
-
-fileprivate struct FfiConverterTypeRpcSyncParams: FfiConverterRustBuffer {
-    fileprivate static func read(from buf: Reader) throws -> RpcSyncParams {
-        return try RpcSyncParams(
-            `startScriptCount`: FfiConverterUInt64.read(from: buf), 
-            `startTime`: FfiConverterUInt64.read(from: buf), 
-            `forceStartTime`: FfiConverterBool.read(from: buf), 
-            `pollRateSec`: FfiConverterUInt64.read(from: buf)
-        )
-    }
-
-    fileprivate static func write(_ value: RpcSyncParams, into buf: Writer) {
-        FfiConverterUInt64.write(value.`startScriptCount`, into: buf)
-        FfiConverterUInt64.write(value.`startTime`, into: buf)
-        FfiConverterBool.write(value.`forceStartTime`, into: buf)
-        FfiConverterUInt64.write(value.`pollRateSec`, into: buf)
     }
 }
 
@@ -2767,68 +2464,10 @@ extension AddressIndex: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-public enum Auth {
-    
-    case `none`
-    case `userPass`(`username`: String, `password`: String)
-    case `cookie`(`file`: String)
-}
-
-fileprivate struct FfiConverterTypeAuth: FfiConverterRustBuffer {
-    typealias SwiftType = Auth
-
-    static func read(from buf: Reader) throws -> Auth {
-        let variant: Int32 = try buf.readInt()
-        switch variant {
-        
-        case 1: return .`none`
-        
-        case 2: return .`userPass`(
-            `username`: try FfiConverterString.read(from: buf), 
-            `password`: try FfiConverterString.read(from: buf)
-        )
-        
-        case 3: return .`cookie`(
-            `file`: try FfiConverterString.read(from: buf)
-        )
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    static func write(_ value: Auth, into buf: Writer) {
-        switch value {
-        
-        
-        case .`none`:
-            buf.writeInt(Int32(1))
-        
-        
-        case let .`userPass`(`username`,`password`):
-            buf.writeInt(Int32(2))
-            FfiConverterString.write(`username`, into: buf)
-            FfiConverterString.write(`password`, into: buf)
-            
-        
-        case let .`cookie`(`file`):
-            buf.writeInt(Int32(3))
-            FfiConverterString.write(`file`, into: buf)
-            
-        }
-    }
-}
-
-
-extension Auth: Equatable, Hashable {}
-
-
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 public enum BlockchainConfig {
     
     case `electrum`(`config`: ElectrumConfig)
     case `esplora`(`config`: EsploraConfig)
-    case `rpc`(`config`: RpcConfig)
 }
 
 fileprivate struct FfiConverterTypeBlockchainConfig: FfiConverterRustBuffer {
@@ -2844,10 +2483,6 @@ fileprivate struct FfiConverterTypeBlockchainConfig: FfiConverterRustBuffer {
         
         case 2: return .`esplora`(
             `config`: try FfiConverterTypeEsploraConfig.read(from: buf)
-        )
-        
-        case 3: return .`rpc`(
-            `config`: try FfiConverterTypeRpcConfig.read(from: buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -2866,11 +2501,6 @@ fileprivate struct FfiConverterTypeBlockchainConfig: FfiConverterRustBuffer {
         case let .`esplora`(`config`):
             buf.writeInt(Int32(2))
             FfiConverterTypeEsploraConfig.write(`config`, into: buf)
-            
-        
-        case let .`rpc`(`config`):
-            buf.writeInt(Int32(3))
-            FfiConverterTypeRpcConfig.write(`config`, into: buf)
             
         }
     }
@@ -3224,9 +2854,6 @@ public enum BdkError {
     // Simple error enums only carry a message
     case Rusqlite(message: String)
     
-    // Simple error enums only carry a message
-    case Rpc(message: String)
-    
 }
 
 fileprivate struct FfiConverterTypeBdkError: FfiConverterRustBuffer {
@@ -3403,10 +3030,6 @@ fileprivate struct FfiConverterTypeBdkError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: buf)
         )
         
-        case 42: return .Rpc(
-            message: try FfiConverterString.read(from: buf)
-        )
-        
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -3540,9 +3163,6 @@ fileprivate struct FfiConverterTypeBdkError: FfiConverterRustBuffer {
             FfiConverterString.write(message, into: buf)
         case let .Rusqlite(message):
             buf.writeInt(Int32(41))
-            FfiConverterString.write(message, into: buf)
-        case let .Rpc(message):
-            buf.writeInt(Int32(42))
             FfiConverterString.write(message, into: buf)
 
         
@@ -3682,7 +3302,7 @@ fileprivate struct FfiConverterCallbackInterfaceProgress {
     private static var callbackInitialized = false
     private static func initCallback() {
         try! rustCall { (err: UnsafeMutablePointer<RustCallStatus>) in
-                ffi_bdk_cd24_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
+                ffi_bdk_1cc_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
         }
     }
     private static func ensureCallbackinitialized() {
@@ -3792,27 +3412,6 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     }
 }
 
-fileprivate struct FfiConverterOptionTypeDescriptor: FfiConverterRustBuffer {
-    typealias SwiftType = Descriptor?
-
-    static func write(_ value: SwiftType, into buf: Writer) {
-        guard let value = value else {
-            buf.writeInt(Int8(0))
-            return
-        }
-        buf.writeInt(Int8(1))
-        FfiConverterTypeDescriptor.write(value, into: buf)
-    }
-
-    static func read(from buf: Reader) throws -> SwiftType {
-        switch try buf.readInt() as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeDescriptor.read(from: buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
 fileprivate struct FfiConverterOptionTypeFeeRate: FfiConverterRustBuffer {
     typealias SwiftType = FeeRate?
 
@@ -3850,27 +3449,6 @@ fileprivate struct FfiConverterOptionTypeBlockTime: FfiConverterRustBuffer {
         switch try buf.readInt() as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeBlockTime.read(from: buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-fileprivate struct FfiConverterOptionTypeRpcSyncParams: FfiConverterRustBuffer {
-    typealias SwiftType = RpcSyncParams?
-
-    static func write(_ value: SwiftType, into buf: Writer) {
-        guard let value = value else {
-            buf.writeInt(Int8(0))
-            return
-        }
-        buf.writeInt(Int8(1))
-        FfiConverterTypeRpcSyncParams.write(value, into: buf)
-    }
-
-    static func read(from buf: Reader) throws -> SwiftType {
-        switch try buf.readInt() as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeRpcSyncParams.read(from: buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
