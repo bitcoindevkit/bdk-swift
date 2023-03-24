@@ -36,8 +36,7 @@ jobs:
       - name: Run bdk-ffi-bindgen
         working-directory: build/bdk-ffi
         run: |
-          cargo run --package bdk-ffi-bindgen -- --language swift --out-dir ../bdk-swift/Sources/BitcoinDevKit
-
+          cargo run --bin uniffi-bindgen generate src/bdk.udl --language swift --out-dir ../bdk-swift/Sources/BitcoinDevKit --no-format
       - name: Build bdk-ffi for x86_64-apple-darwin
         working-directory: build
         run: |
