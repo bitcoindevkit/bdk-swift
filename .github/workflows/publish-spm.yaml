@@ -27,10 +27,10 @@ jobs:
       - name: Install Rust targets
         working-directory: build
         run: |
-          rustup install nightly-x86_64-apple-darwin
-          rustup component add rust-src --toolchain nightly-x86_64-apple-darwin
+          rustup install nightly-2023-04-10
+          rustup component add rust-src --toolchain nightly-2023-04-10
           rustup target add aarch64-apple-ios x86_64-apple-ios
-          rustup target add aarch64-apple-ios-sim --toolchain nightly
+          rustup target add aarch64-apple-ios-sim --toolchain nightly-2023-04-10
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Run bdk-ffi-bindgen
@@ -60,7 +60,7 @@ jobs:
       - name: Build bdk-ffi for aarch64-apple-ios-sim
         working-directory: build
         run: |
-          cargo +nightly build --release -Z build-std --target aarch64-apple-ios-sim
+          cargo +nightly-2023-04-10 build --release --target aarch64-apple-ios-sim
 
       - name: Create lipo-ios-sim and lipo-macos
         working-directory: build
