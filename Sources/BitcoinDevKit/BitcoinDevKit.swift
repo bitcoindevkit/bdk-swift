@@ -19,13 +19,13 @@ fileprivate extension RustBuffer {
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
-        try! rustCall { ffi_bdk_ddbc_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
+        try! rustCall { ffi_bdk_3ed8_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
     }
 
     // Frees the buffer in place.
     // The buffer must not be used after this is called.
     func deallocate() {
-        try! rustCall { ffi_bdk_ddbc_rustbuffer_free(self, $0) }
+        try! rustCall { ffi_bdk_3ed8_rustbuffer_free(self, $0) }
     }
 }
 
@@ -410,6 +410,7 @@ public protocol AddressProtocol {
     func `network`()  -> Network
     func `scriptPubkey`()  -> Script
     func `toQrUri`()  -> String
+    func `asString`()  -> String
     
 }
 
@@ -427,15 +428,26 @@ public class Address: AddressProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Address_new(
+    bdk_3ed8_Address_new(
         FfiConverterString.lower(`address`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Address_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Address_object_free(pointer, $0) }
     }
 
+    
+    public static func `fromScript`(`script`: Script, `network`: Network) throws -> Address {
+        return Address(unsafeFromRawPointer: try
+    
+    rustCallWithError(FfiConverterTypeBdkError.self) {
+    
+    bdk_3ed8_Address_from_script(
+        FfiConverterTypeScript.lower(`script`), 
+        FfiConverterTypeNetwork.lower(`network`), $0)
+})
+    }
     
 
     
@@ -444,7 +456,7 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Address_payload(self.pointer, $0
+    bdk_3ed8_Address_payload(self.pointer, $0
     )
 }
         )
@@ -454,7 +466,7 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Address_network(self.pointer, $0
+    bdk_3ed8_Address_network(self.pointer, $0
     )
 }
         )
@@ -464,7 +476,7 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Address_script_pubkey(self.pointer, $0
+    bdk_3ed8_Address_script_pubkey(self.pointer, $0
     )
 }
         )
@@ -474,7 +486,17 @@ public class Address: AddressProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Address_to_qr_uri(self.pointer, $0
+    bdk_3ed8_Address_to_qr_uri(self.pointer, $0
+    )
+}
+        )
+    }
+    public func `asString`()  -> String {
+        return try! FfiConverterString.lift(
+            try!
+    rustCall() {
+    
+    bdk_3ed8_Address_as_string(self.pointer, $0
     )
 }
         )
@@ -536,13 +558,13 @@ public class Blockchain: BlockchainProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Blockchain_new(
+    bdk_3ed8_Blockchain_new(
         FfiConverterTypeBlockchainConfig.lower(`config`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Blockchain_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Blockchain_object_free(pointer, $0) }
     }
 
     
@@ -551,7 +573,7 @@ public class Blockchain: BlockchainProtocol {
     public func `broadcast`(`transaction`: Transaction) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Blockchain_broadcast(self.pointer, 
+    bdk_3ed8_Blockchain_broadcast(self.pointer, 
         FfiConverterTypeTransaction.lower(`transaction`), $0
     )
 }
@@ -560,7 +582,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterTypeFeeRate.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Blockchain_estimate_fee(self.pointer, 
+    bdk_3ed8_Blockchain_estimate_fee(self.pointer, 
         FfiConverterUInt64.lower(`target`), $0
     )
 }
@@ -570,7 +592,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterUInt32.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Blockchain_get_height(self.pointer, $0
+    bdk_3ed8_Blockchain_get_height(self.pointer, $0
     )
 }
         )
@@ -579,7 +601,7 @@ public class Blockchain: BlockchainProtocol {
         return try FfiConverterString.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Blockchain_get_block_hash(self.pointer, 
+    bdk_3ed8_Blockchain_get_block_hash(self.pointer, 
         FfiConverterUInt32.lower(`height`), $0
     )
 }
@@ -642,14 +664,14 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
     
     rustCall() {
     
-    bdk_ddbc_BumpFeeTxBuilder_new(
+    bdk_3ed8_BumpFeeTxBuilder_new(
         FfiConverterString.lower(`txid`), 
         FfiConverterFloat.lower(`newFeeRate`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_BumpFeeTxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_BumpFeeTxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -660,7 +682,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
+    bdk_3ed8_BumpFeeTxBuilder_allow_shrinking(self.pointer, 
         FfiConverterString.lower(`address`), $0
     )
 }
@@ -671,7 +693,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
+    bdk_3ed8_BumpFeeTxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -681,7 +703,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_3ed8_BumpFeeTxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
@@ -691,7 +713,7 @@ public class BumpFeeTxBuilder: BumpFeeTxBuilderProtocol {
         return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_BumpFeeTxBuilder_finish(self.pointer, 
+    bdk_3ed8_BumpFeeTxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -750,13 +772,13 @@ public class DerivationPath: DerivationPathProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_DerivationPath_new(
+    bdk_3ed8_DerivationPath_new(
         FfiConverterString.lower(`path`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_DerivationPath_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_DerivationPath_object_free(pointer, $0) }
     }
 
     
@@ -817,14 +839,14 @@ public class Descriptor: DescriptorProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Descriptor_new(
+    bdk_3ed8_Descriptor_new(
         FfiConverterString.lower(`descriptor`), 
         FfiConverterTypeNetwork.lower(`network`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Descriptor_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Descriptor_object_free(pointer, $0) }
     }
 
     
@@ -833,7 +855,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip44(
+    bdk_3ed8_Descriptor_new_bip44(
         FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
         FfiConverterTypeNetwork.lower(`network`), $0)
@@ -845,7 +867,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip44_public(
+    bdk_3ed8_Descriptor_new_bip44_public(
         FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
         FfiConverterString.lower(`fingerprint`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
@@ -858,7 +880,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip49(
+    bdk_3ed8_Descriptor_new_bip49(
         FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
         FfiConverterTypeNetwork.lower(`network`), $0)
@@ -870,7 +892,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip49_public(
+    bdk_3ed8_Descriptor_new_bip49_public(
         FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
         FfiConverterString.lower(`fingerprint`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
@@ -883,7 +905,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip84(
+    bdk_3ed8_Descriptor_new_bip84(
         FfiConverterTypeDescriptorSecretKey.lower(`secretKey`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
         FfiConverterTypeNetwork.lower(`network`), $0)
@@ -895,7 +917,7 @@ public class Descriptor: DescriptorProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Descriptor_new_bip84_public(
+    bdk_3ed8_Descriptor_new_bip84_public(
         FfiConverterTypeDescriptorPublicKey.lower(`publicKey`), 
         FfiConverterString.lower(`fingerprint`), 
         FfiConverterTypeKeychainKind.lower(`keychain`), 
@@ -910,7 +932,7 @@ public class Descriptor: DescriptorProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Descriptor_as_string(self.pointer, $0
+    bdk_3ed8_Descriptor_as_string(self.pointer, $0
     )
 }
         )
@@ -920,7 +942,7 @@ public class Descriptor: DescriptorProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Descriptor_as_string_private(self.pointer, $0
+    bdk_3ed8_Descriptor_as_string_private(self.pointer, $0
     )
 }
         )
@@ -978,7 +1000,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_DescriptorPublicKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_DescriptorPublicKey_object_free(pointer, $0) }
     }
 
     
@@ -987,7 +1009,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_DescriptorPublicKey_from_string(
+    bdk_3ed8_DescriptorPublicKey_from_string(
         FfiConverterString.lower(`publicKey`), $0)
 })
     }
@@ -998,7 +1020,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
         return try FfiConverterTypeDescriptorPublicKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_DescriptorPublicKey_derive(self.pointer, 
+    bdk_3ed8_DescriptorPublicKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1008,7 +1030,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
         return try FfiConverterTypeDescriptorPublicKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_DescriptorPublicKey_extend(self.pointer, 
+    bdk_3ed8_DescriptorPublicKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1019,7 +1041,7 @@ public class DescriptorPublicKey: DescriptorPublicKeyProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_DescriptorPublicKey_as_string(self.pointer, $0
+    bdk_3ed8_DescriptorPublicKey_as_string(self.pointer, $0
     )
 }
         )
@@ -1082,7 +1104,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     
     rustCall() {
     
-    bdk_ddbc_DescriptorSecretKey_new(
+    bdk_3ed8_DescriptorSecretKey_new(
         FfiConverterTypeNetwork.lower(`network`), 
         FfiConverterTypeMnemonic.lower(`mnemonic`), 
         FfiConverterOptionString.lower(`password`), $0)
@@ -1090,7 +1112,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_DescriptorSecretKey_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_DescriptorSecretKey_object_free(pointer, $0) }
     }
 
     
@@ -1099,7 +1121,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_DescriptorSecretKey_from_string(
+    bdk_3ed8_DescriptorSecretKey_from_string(
         FfiConverterString.lower(`secretKey`), $0)
 })
     }
@@ -1110,7 +1132,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
         return try FfiConverterTypeDescriptorSecretKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_DescriptorSecretKey_derive(self.pointer, 
+    bdk_3ed8_DescriptorSecretKey_derive(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1120,7 +1142,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
         return try FfiConverterTypeDescriptorSecretKey.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_DescriptorSecretKey_extend(self.pointer, 
+    bdk_3ed8_DescriptorSecretKey_extend(self.pointer, 
         FfiConverterTypeDerivationPath.lower(`path`), $0
     )
 }
@@ -1131,7 +1153,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_DescriptorSecretKey_as_public(self.pointer, $0
+    bdk_3ed8_DescriptorSecretKey_as_public(self.pointer, $0
     )
 }
         )
@@ -1141,7 +1163,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_DescriptorSecretKey_secret_bytes(self.pointer, $0
+    bdk_3ed8_DescriptorSecretKey_secret_bytes(self.pointer, $0
     )
 }
         )
@@ -1151,7 +1173,7 @@ public class DescriptorSecretKey: DescriptorSecretKeyProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_DescriptorSecretKey_as_string(self.pointer, $0
+    bdk_3ed8_DescriptorSecretKey_as_string(self.pointer, $0
     )
 }
         )
@@ -1207,7 +1229,7 @@ public class FeeRate: FeeRateProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_FeeRate_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_FeeRate_object_free(pointer, $0) }
     }
 
     
@@ -1216,7 +1238,7 @@ public class FeeRate: FeeRateProtocol {
     
     rustCall() {
     
-    bdk_ddbc_FeeRate_from_sat_per_vb(
+    bdk_3ed8_FeeRate_from_sat_per_vb(
         FfiConverterFloat.lower(`satPerVb`), $0)
 })
     }
@@ -1228,7 +1250,7 @@ public class FeeRate: FeeRateProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_FeeRate_as_sat_per_vb(self.pointer, $0
+    bdk_3ed8_FeeRate_as_sat_per_vb(self.pointer, $0
     )
 }
         )
@@ -1287,13 +1309,13 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Mnemonic_new(
+    bdk_3ed8_Mnemonic_new(
         FfiConverterTypeWordCount.lower(`wordCount`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Mnemonic_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Mnemonic_object_free(pointer, $0) }
     }
 
     
@@ -1302,7 +1324,7 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Mnemonic_from_string(
+    bdk_3ed8_Mnemonic_from_string(
         FfiConverterString.lower(`mnemonic`), $0)
 })
     }
@@ -1312,7 +1334,7 @@ public class Mnemonic: MnemonicProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Mnemonic_from_entropy(
+    bdk_3ed8_Mnemonic_from_entropy(
         FfiConverterSequenceUInt8.lower(`entropy`), $0)
 })
     }
@@ -1324,7 +1346,7 @@ public class Mnemonic: MnemonicProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Mnemonic_as_string(self.pointer, $0
+    bdk_3ed8_Mnemonic_as_string(self.pointer, $0
     )
 }
         )
@@ -1371,6 +1393,7 @@ public protocol PartiallySignedTransactionProtocol {
     func `combine`(`other`: PartiallySignedTransaction) throws -> PartiallySignedTransaction
     func `feeAmount`()  -> UInt64?
     func `feeRate`()  -> FeeRate?
+    func `jsonSerialize`()  -> String
     
 }
 
@@ -1388,13 +1411,13 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_PartiallySignedTransaction_new(
+    bdk_3ed8_PartiallySignedTransaction_new(
         FfiConverterString.lower(`psbtBase64`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_PartiallySignedTransaction_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_PartiallySignedTransaction_object_free(pointer, $0) }
     }
 
     
@@ -1405,7 +1428,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_PartiallySignedTransaction_serialize(self.pointer, $0
+    bdk_3ed8_PartiallySignedTransaction_serialize(self.pointer, $0
     )
 }
         )
@@ -1415,7 +1438,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_PartiallySignedTransaction_txid(self.pointer, $0
+    bdk_3ed8_PartiallySignedTransaction_txid(self.pointer, $0
     )
 }
         )
@@ -1425,7 +1448,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_PartiallySignedTransaction_extract_tx(self.pointer, $0
+    bdk_3ed8_PartiallySignedTransaction_extract_tx(self.pointer, $0
     )
 }
         )
@@ -1434,7 +1457,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
         return try FfiConverterTypePartiallySignedTransaction.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_PartiallySignedTransaction_combine(self.pointer, 
+    bdk_3ed8_PartiallySignedTransaction_combine(self.pointer, 
         FfiConverterTypePartiallySignedTransaction.lower(`other`), $0
     )
 }
@@ -1445,7 +1468,7 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_PartiallySignedTransaction_fee_amount(self.pointer, $0
+    bdk_3ed8_PartiallySignedTransaction_fee_amount(self.pointer, $0
     )
 }
         )
@@ -1455,7 +1478,17 @@ public class PartiallySignedTransaction: PartiallySignedTransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_PartiallySignedTransaction_fee_rate(self.pointer, $0
+    bdk_3ed8_PartiallySignedTransaction_fee_rate(self.pointer, $0
+    )
+}
+        )
+    }
+    public func `jsonSerialize`()  -> String {
+        return try! FfiConverterString.lift(
+            try!
+    rustCall() {
+    
+    bdk_3ed8_PartiallySignedTransaction_json_serialize(self.pointer, $0
     )
 }
         )
@@ -1513,13 +1546,13 @@ public class Script: ScriptProtocol {
     
     rustCall() {
     
-    bdk_ddbc_Script_new(
+    bdk_3ed8_Script_new(
         FfiConverterSequenceUInt8.lower(`rawOutputScript`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Script_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Script_object_free(pointer, $0) }
     }
 
     
@@ -1590,13 +1623,13 @@ public class Transaction: TransactionProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Transaction_new(
+    bdk_3ed8_Transaction_new(
         FfiConverterSequenceUInt8.lower(`transactionBytes`), $0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Transaction_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Transaction_object_free(pointer, $0) }
     }
 
     
@@ -1607,7 +1640,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_txid(self.pointer, $0
+    bdk_3ed8_Transaction_txid(self.pointer, $0
     )
 }
         )
@@ -1617,7 +1650,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_weight(self.pointer, $0
+    bdk_3ed8_Transaction_weight(self.pointer, $0
     )
 }
         )
@@ -1627,7 +1660,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_size(self.pointer, $0
+    bdk_3ed8_Transaction_size(self.pointer, $0
     )
 }
         )
@@ -1637,7 +1670,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_vsize(self.pointer, $0
+    bdk_3ed8_Transaction_vsize(self.pointer, $0
     )
 }
         )
@@ -1647,7 +1680,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_serialize(self.pointer, $0
+    bdk_3ed8_Transaction_serialize(self.pointer, $0
     )
 }
         )
@@ -1657,7 +1690,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_is_coin_base(self.pointer, $0
+    bdk_3ed8_Transaction_is_coin_base(self.pointer, $0
     )
 }
         )
@@ -1667,7 +1700,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_is_explicitly_rbf(self.pointer, $0
+    bdk_3ed8_Transaction_is_explicitly_rbf(self.pointer, $0
     )
 }
         )
@@ -1677,7 +1710,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_is_lock_time_enabled(self.pointer, $0
+    bdk_3ed8_Transaction_is_lock_time_enabled(self.pointer, $0
     )
 }
         )
@@ -1687,7 +1720,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_version(self.pointer, $0
+    bdk_3ed8_Transaction_version(self.pointer, $0
     )
 }
         )
@@ -1697,7 +1730,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_lock_time(self.pointer, $0
+    bdk_3ed8_Transaction_lock_time(self.pointer, $0
     )
 }
         )
@@ -1707,7 +1740,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_input(self.pointer, $0
+    bdk_3ed8_Transaction_input(self.pointer, $0
     )
 }
         )
@@ -1717,7 +1750,7 @@ public class Transaction: TransactionProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Transaction_output(self.pointer, $0
+    bdk_3ed8_Transaction_output(self.pointer, $0
     )
 }
         )
@@ -1792,12 +1825,12 @@ public class TxBuilder: TxBuilderProtocol {
     
     rustCall() {
     
-    bdk_ddbc_TxBuilder_new($0)
+    bdk_3ed8_TxBuilder_new($0)
 })
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_TxBuilder_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_TxBuilder_object_free(pointer, $0) }
     }
 
     
@@ -1808,7 +1841,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_add_recipient(self.pointer, 
+    bdk_3ed8_TxBuilder_add_recipient(self.pointer, 
         FfiConverterTypeScript.lower(`script`), 
         FfiConverterUInt64.lower(`amount`), $0
     )
@@ -1820,7 +1853,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_add_unspendable(self.pointer, 
+    bdk_3ed8_TxBuilder_add_unspendable(self.pointer, 
         FfiConverterTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1831,7 +1864,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_add_utxo(self.pointer, 
+    bdk_3ed8_TxBuilder_add_utxo(self.pointer, 
         FfiConverterTypeOutPoint.lower(`outpoint`), $0
     )
 }
@@ -1842,7 +1875,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_add_utxos(self.pointer, 
+    bdk_3ed8_TxBuilder_add_utxos(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`outpoints`), $0
     )
 }
@@ -1853,7 +1886,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_do_not_spend_change(self.pointer, $0
+    bdk_3ed8_TxBuilder_do_not_spend_change(self.pointer, $0
     )
 }
         )
@@ -1863,7 +1896,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_manually_selected_only(self.pointer, $0
+    bdk_3ed8_TxBuilder_manually_selected_only(self.pointer, $0
     )
 }
         )
@@ -1873,7 +1906,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_only_spend_change(self.pointer, $0
+    bdk_3ed8_TxBuilder_only_spend_change(self.pointer, $0
     )
 }
         )
@@ -1883,7 +1916,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_unspendable(self.pointer, 
+    bdk_3ed8_TxBuilder_unspendable(self.pointer, 
         FfiConverterSequenceTypeOutPoint.lower(`unspendable`), $0
     )
 }
@@ -1894,7 +1927,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_fee_rate(self.pointer, 
+    bdk_3ed8_TxBuilder_fee_rate(self.pointer, 
         FfiConverterFloat.lower(`satPerVbyte`), $0
     )
 }
@@ -1905,7 +1938,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_fee_absolute(self.pointer, 
+    bdk_3ed8_TxBuilder_fee_absolute(self.pointer, 
         FfiConverterUInt64.lower(`feeAmount`), $0
     )
 }
@@ -1916,7 +1949,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_drain_wallet(self.pointer, $0
+    bdk_3ed8_TxBuilder_drain_wallet(self.pointer, $0
     )
 }
         )
@@ -1926,7 +1959,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_drain_to(self.pointer, 
+    bdk_3ed8_TxBuilder_drain_to(self.pointer, 
         FfiConverterTypeScript.lower(`script`), $0
     )
 }
@@ -1937,7 +1970,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_enable_rbf(self.pointer, $0
+    bdk_3ed8_TxBuilder_enable_rbf(self.pointer, $0
     )
 }
         )
@@ -1947,7 +1980,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_enable_rbf_with_sequence(self.pointer, 
+    bdk_3ed8_TxBuilder_enable_rbf_with_sequence(self.pointer, 
         FfiConverterUInt32.lower(`nsequence`), $0
     )
 }
@@ -1958,7 +1991,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_add_data(self.pointer, 
+    bdk_3ed8_TxBuilder_add_data(self.pointer, 
         FfiConverterSequenceUInt8.lower(`data`), $0
     )
 }
@@ -1969,7 +2002,7 @@ public class TxBuilder: TxBuilderProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_TxBuilder_set_recipients(self.pointer, 
+    bdk_3ed8_TxBuilder_set_recipients(self.pointer, 
         FfiConverterSequenceTypeScriptAmount.lower(`recipients`), $0
     )
 }
@@ -1979,7 +2012,7 @@ public class TxBuilder: TxBuilderProtocol {
         return try FfiConverterTypeTxBuilderResult.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_TxBuilder_finish(self.pointer, 
+    bdk_3ed8_TxBuilder_finish(self.pointer, 
         FfiConverterTypeWallet.lower(`wallet`), $0
     )
 }
@@ -2046,7 +2079,7 @@ public class Wallet: WalletProtocol {
     
     rustCallWithError(FfiConverterTypeBdkError.self) {
     
-    bdk_ddbc_Wallet_new(
+    bdk_3ed8_Wallet_new(
         FfiConverterTypeDescriptor.lower(`descriptor`), 
         FfiConverterOptionTypeDescriptor.lower(`changeDescriptor`), 
         FfiConverterTypeNetwork.lower(`network`), 
@@ -2055,7 +2088,7 @@ public class Wallet: WalletProtocol {
     }
 
     deinit {
-        try! rustCall { ffi_bdk_ddbc_Wallet_object_free(pointer, $0) }
+        try! rustCall { ffi_bdk_3ed8_Wallet_object_free(pointer, $0) }
     }
 
     
@@ -2065,7 +2098,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeAddressInfo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_get_address(self.pointer, 
+    bdk_3ed8_Wallet_get_address(self.pointer, 
         FfiConverterTypeAddressIndex.lower(`addressIndex`), $0
     )
 }
@@ -2075,7 +2108,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeAddressInfo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_get_internal_address(self.pointer, 
+    bdk_3ed8_Wallet_get_internal_address(self.pointer, 
         FfiConverterTypeAddressIndex.lower(`addressIndex`), $0
     )
 }
@@ -2085,7 +2118,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterTypeBalance.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_get_balance(self.pointer, $0
+    bdk_3ed8_Wallet_get_balance(self.pointer, $0
     )
 }
         )
@@ -2094,7 +2127,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterBool.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_sign(self.pointer, 
+    bdk_3ed8_Wallet_sign(self.pointer, 
         FfiConverterTypePartiallySignedTransaction.lower(`psbt`), 
         FfiConverterOptionTypeSignOptions.lower(`signOptions`), $0
     )
@@ -2105,7 +2138,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeTransactionDetails.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_list_transactions(self.pointer, 
+    bdk_3ed8_Wallet_list_transactions(self.pointer, 
         FfiConverterBool.lower(`includeRaw`), $0
     )
 }
@@ -2116,7 +2149,7 @@ public class Wallet: WalletProtocol {
             try!
     rustCall() {
     
-    bdk_ddbc_Wallet_network(self.pointer, $0
+    bdk_3ed8_Wallet_network(self.pointer, $0
     )
 }
         )
@@ -2124,7 +2157,7 @@ public class Wallet: WalletProtocol {
     public func `sync`(`blockchain`: Blockchain, `progress`: Progress?) throws {
         try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_sync(self.pointer, 
+    bdk_3ed8_Wallet_sync(self.pointer, 
         FfiConverterTypeBlockchain.lower(`blockchain`), 
         FfiConverterOptionCallbackInterfaceProgress.lower(`progress`), $0
     )
@@ -2134,7 +2167,7 @@ public class Wallet: WalletProtocol {
         return try FfiConverterSequenceTypeLocalUtxo.lift(
             try
     rustCallWithError(FfiConverterTypeBdkError.self) {
-    bdk_ddbc_Wallet_list_unspent(self.pointer, $0
+    bdk_3ed8_Wallet_list_unspent(self.pointer, $0
     )
 }
         )
@@ -2176,46 +2209,33 @@ public struct FfiConverterTypeWallet: FfiConverter {
 
 public struct AddressInfo {
     public var `index`: UInt32
-    public var `address`: String
+    public var `address`: Address
+    public var `keychain`: KeychainKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(`index`: UInt32, `address`: String) {
+    public init(`index`: UInt32, `address`: Address, `keychain`: KeychainKind) {
         self.`index` = `index`
         self.`address` = `address`
+        self.`keychain` = `keychain`
     }
 }
 
-
-extension AddressInfo: Equatable, Hashable {
-    public static func ==(lhs: AddressInfo, rhs: AddressInfo) -> Bool {
-        if lhs.`index` != rhs.`index` {
-            return false
-        }
-        if lhs.`address` != rhs.`address` {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(`index`)
-        hasher.combine(`address`)
-    }
-}
 
 
 public struct FfiConverterTypeAddressInfo: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressInfo {
         return try AddressInfo(
             `index`: FfiConverterUInt32.read(from: &buf), 
-            `address`: FfiConverterString.read(from: &buf)
+            `address`: FfiConverterTypeAddress.read(from: &buf), 
+            `keychain`: FfiConverterTypeKeychainKind.read(from: &buf)
         )
     }
 
     public static func write(_ value: AddressInfo, into buf: inout [UInt8]) {
         FfiConverterUInt32.write(value.`index`, into: &buf)
-        FfiConverterString.write(value.`address`, into: &buf)
+        FfiConverterTypeAddress.write(value.`address`, into: &buf)
+        FfiConverterTypeKeychainKind.write(value.`keychain`, into: &buf)
     }
 }
 
@@ -4465,7 +4485,7 @@ fileprivate struct FfiConverterCallbackInterfaceProgress {
     private static var callbackInitialized = false
     private static func initCallback() {
         try! rustCall { (err: UnsafeMutablePointer<RustCallStatus>) in
-                ffi_bdk_ddbc_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
+                ffi_bdk_3ed8_Progress_init_callback(foreignCallbackCallbackInterfaceProgress, err)
         }
     }
     private static func ensureCallbackinitialized() {
