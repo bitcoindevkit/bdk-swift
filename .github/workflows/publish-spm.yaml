@@ -60,13 +60,13 @@ jobs:
       - name: Build bdk-ffi for aarch64-apple-ios-sim
         working-directory: build
         run: |
-          cargo +nightly-2023-04-10 build --release --target aarch64-apple-ios-sim
+          cargo +nightly-2023-04-10 build --profile release-smaller --target aarch64-apple-ios-sim
 
       - name: Create lipo-ios-sim and lipo-macos
         working-directory: build
         run: |
           mkdir -p target/lipo-ios-sim/release-smaller
-          lipo target/aarch64-apple-ios-sim/release/libbdkffi.a target/x86_64-apple-ios/release-smaller/libbdkffi.a -create -output target/lipo-ios-sim/release-smaller/libbdkffi.a
+          lipo target/aarch64-apple-ios-sim/release-smaller/libbdkffi.a target/x86_64-apple-ios/release-smaller/libbdkffi.a -create -output target/lipo-ios-sim/release-smaller/libbdkffi.a
           mkdir -p target/lipo-macos/release-smaller
           lipo target/aarch64-apple-darwin/release-smaller/libbdkffi.a target/x86_64-apple-darwin/release-smaller/libbdkffi.a -create -output target/lipo-macos/release-smaller/libbdkffi.a
 
