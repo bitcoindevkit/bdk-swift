@@ -1,4 +1,4 @@
-name: Build, tag and create release
+name: Build, Tag and Create Release
 on:
   workflow_dispatch:
     inputs:
@@ -6,103 +6,111 @@ on:
         description: 'New release version, eg. 0.MINOR.PATCH'
         required: true
         type: string
+      ffitag:
+        description: "The bdk-ffi tag to release from"
+        required: true
+        type: string
 
 jobs:
   build-publish:
-    name: Build, tag and create release
+    name: "Build, tag and create release"
     runs-on: macos-12
     steps:
-      - name: Checkout build repo
+      - name: "Checkout build repo"
         uses: actions/checkout@v3
         with:
           repository: ${{ github.repository_owner }}/bdk-ffi
           path: build
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.ffitag }}
 
-      - name: Checkout dist repo
+      - name: "Checkout dist repo"
         uses: actions/checkout@v3
         with:
           path: dist
 
-      - name: Install Rust targets
-        working-directory: build
-        run: |
-          rustup install nightly-2023-04-10
-          rustup component add rust-src --toolchain nightly-2023-04-10
-          rustup target add aarch64-apple-ios x86_64-apple-ios
-          rustup target add aarch64-apple-ios-sim --toolchain nightly-2023-04-10
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: "Run publishing script"
+        run: bash publish.sh
 
-      - name: Run bdk-ffi-bindgen
-        working-directory: build/bdk-ffi
-        run: |
-          cargo run --bin uniffi-bindgen generate src/bdk.udl --language swift --out-dir ../bdk-swift/Sources/BitcoinDevKit --no-format
-      - name: Build bdk-ffi for x86_64-apple-darwin
-        working-directory: build
-        run: |
-          cargo build --profile release-smaller --target x86_64-apple-darwin
+      # - name: Install Rust targets
+      #   working-directory: build
+      #   run: |
+      #     rustup install nightly-2023-04-10
+      #     rustup component add rust-src --toolchain nightly-2023-04-10
+      #     rustup target add aarch64-apple-ios x86_64-apple-ios
+      #     rustup target add aarch64-apple-ios-sim --toolchain nightly-2023-04-10
+      #     rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Build bdk-ffi for aarch64-apple-darwin
-        working-directory: build
-        run: |
-          cargo build --profile release-smaller --target aarch64-apple-darwin
+      # - name: Run bdk-ffi-bindgen
+      #   working-directory: build/bdk-ffi
+      #   run: |
+      #     cargo run --bin uniffi-bindgen generate src/bdk.udl --language swift --out-dir ../bdk-swift/Sources/BitcoinDevKit --no-format
+      
+      # - name: Build bdk-ffi for x86_64-apple-darwin
+      #   working-directory: build
+      #   run: |
+      #     cargo build --profile release-smaller --target x86_64-apple-darwin
 
-      - name: Build bdk-ffi for x86_64-apple-ios
-        working-directory: build
-        run: |
-          cargo build --profile release-smaller --target x86_64-apple-ios
+      # - name: Build bdk-ffi for aarch64-apple-darwin
+      #   working-directory: build
+      #   run: |
+      #     cargo build --profile release-smaller --target aarch64-apple-darwin
 
-      - name: Build bdk-ffi for aarch64-apple-ios
-        working-directory: build
-        run: |
-          cargo build --profile release-smaller --target aarch64-apple-ios
+      # - name: Build bdk-ffi for x86_64-apple-ios
+      #   working-directory: build
+      #   run: |
+      #     cargo build --profile release-smaller --target x86_64-apple-ios
 
-      - name: Build bdk-ffi for aarch64-apple-ios-sim
-        working-directory: build
-        run: |
-          cargo +nightly-2023-04-10 build --profile release-smaller --target aarch64-apple-ios-sim
+      # - name: Build bdk-ffi for aarch64-apple-ios
+      #   working-directory: build
+      #   run: |
+      #     cargo build --profile release-smaller --target aarch64-apple-ios
 
-      - name: Create lipo-ios-sim and lipo-macos
-        working-directory: build
-        run: |
-          mkdir -p target/lipo-ios-sim/release-smaller
-          lipo target/aarch64-apple-ios-sim/release-smaller/libbdkffi.a target/x86_64-apple-ios/release-smaller/libbdkffi.a -create -output target/lipo-ios-sim/release-smaller/libbdkffi.a
-          mkdir -p target/lipo-macos/release-smaller
-          lipo target/aarch64-apple-darwin/release-smaller/libbdkffi.a target/x86_64-apple-darwin/release-smaller/libbdkffi.a -create -output target/lipo-macos/release-smaller/libbdkffi.a
+      # - name: Build bdk-ffi for aarch64-apple-ios-sim
+      #   working-directory: build
+      #   run: |
+      #     cargo +nightly-2023-04-10 build --profile release-smaller --target aarch64-apple-ios-sim
 
-      - name: Create bdkFFI.xcframework
-        working-directory: build/bdk-swift
-        run: |
-          mv Sources/BitcoinDevKit/bdk.swift Sources/BitcoinDevKit/BitcoinDevKit.swift
-          cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/ios-arm64/bdkFFI.framework/Headers
-          cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/ios-arm64_x86_64-simulator/bdkFFI.framework/Headers
-          cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/macos-arm64_x86_64/bdkFFI.framework/Headers
-          cp ../target/aarch64-apple-ios/release-smaller/libbdkffi.a bdkFFI.xcframework/ios-arm64/bdkFFI.framework/bdkFFI
-          cp ../target/lipo-ios-sim/release-smaller/libbdkffi.a bdkFFI.xcframework/ios-arm64_x86_64-simulator/bdkFFI.framework/bdkFFI
-          cp ../target/lipo-macos/release-smaller/libbdkffi.a bdkFFI.xcframework/macos-arm64_x86_64/bdkFFI.framework/bdkFFI
-          rm Sources/BitcoinDevKit/bdkFFI.h
-          rm Sources/BitcoinDevkit/bdkFFI.modulemap
-          rm bdkFFI.xcframework.zip || true
-          zip -9 -r bdkFFI.xcframework.zip bdkFFI.xcframework
-          echo "BDKFFICHECKSUM=`swift package compute-checksum bdkFFI.xcframework.zip`" >> $GITHUB_ENV
-          echo "BDKFFIURL=https\:\/\/github\.com\/${{ github.repository_owner }}\/bdk\-swift\/releases\/download\/${{ inputs.version }}\/bdkFFI\.xcframework\.zip" >> $GITHUB_ENV
+      # - name: Create lipo-ios-sim and lipo-macos
+      #   working-directory: build
+      #   run: |
+      #     mkdir -p target/lipo-ios-sim/release-smaller
+      #     lipo target/aarch64-apple-ios-sim/release-smaller/libbdkffi.a target/x86_64-apple-ios/release-smaller/libbdkffi.a -create -output target/lipo-ios-sim/release-smaller/libbdkffi.a
+      #     mkdir -p target/lipo-macos/release-smaller
+      #     lipo target/aarch64-apple-darwin/release-smaller/libbdkffi.a target/x86_64-apple-darwin/release-smaller/libbdkffi.a -create -output target/lipo-macos/release-smaller/libbdkffi.a
 
-      - name: Update and tag release dist repo
-        working-directory: build/bdk-swift
-        run: |
-          echo checksum = ${{ env.BDKFFICHECKSUM }}
-          echo url = ${{ env.BDKFFIURL }}
-          sed "s/BDKFFICHECKSUM/${BDKFFICHECKSUM}/;s/BDKFFIURL/${BDKFFIURL}/" Package.swift.txt > ../../dist/Package.swift
-          cp Sources/BitcoinDevKit/BitcoinDevKit.swift ../../dist/Sources/BitcoinDevKit/BitcoinDevKit.swift
-          cd ../../dist
-          git add Sources/BitcoinDevKit/BitcoinDevKit.swift
-          git add Package.swift
-          git commit -m "Update BitcoinDevKit.swift and Package.swift for release ${{ inputs.version }}"
-          git push
-          git tag ${{ inputs.version }} -m "Release ${{ inputs.version }}"
-          git push --tags
+      # - name: Create bdkFFI.xcframework
+      #   working-directory: build/bdk-swift
+      #   run: |
+      #     mv Sources/BitcoinDevKit/bdk.swift Sources/BitcoinDevKit/BitcoinDevKit.swift
+      #     cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/ios-arm64/bdkFFI.framework/Headers
+      #     cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/ios-arm64_x86_64-simulator/bdkFFI.framework/Headers
+      #     cp Sources/BitcoinDevKit/bdkFFI.h bdkFFI.xcframework/macos-arm64_x86_64/bdkFFI.framework/Headers
+      #     cp ../target/aarch64-apple-ios/release-smaller/libbdkffi.a bdkFFI.xcframework/ios-arm64/bdkFFI.framework/bdkFFI
+      #     cp ../target/lipo-ios-sim/release-smaller/libbdkffi.a bdkFFI.xcframework/ios-arm64_x86_64-simulator/bdkFFI.framework/bdkFFI
+      #     cp ../target/lipo-macos/release-smaller/libbdkffi.a bdkFFI.xcframework/macos-arm64_x86_64/bdkFFI.framework/bdkFFI
+      #     rm Sources/BitcoinDevKit/bdkFFI.h
+      #     rm Sources/BitcoinDevkit/bdkFFI.modulemap
+      #     rm bdkFFI.xcframework.zip || true
+      #     zip -9 -r bdkFFI.xcframework.zip bdkFFI.xcframework
+      #     echo "BDKFFICHECKSUM=`swift package compute-checksum bdkFFI.xcframework.zip`" >> $GITHUB_ENV
+      #     echo "BDKFFIURL=https\:\/\/github\.com\/${{ github.repository_owner }}\/bdk\-swift\/releases\/download\/${{ inputs.version }}\/bdkFFI\.xcframework\.zip" >> $GITHUB_ENV
 
-      - name: Create release
+      # - name: Update and tag release dist repo
+      #   working-directory: build/bdk-swift
+      #   run: |
+      #     echo checksum = ${{ env.BDKFFICHECKSUM }}
+      #     echo url = ${{ env.BDKFFIURL }}
+      #     sed "s/BDKFFICHECKSUM/${BDKFFICHECKSUM}/;s/BDKFFIURL/${BDKFFIURL}/" Package.swift.txt > ../../dist/Package.swift
+      #     cp Sources/BitcoinDevKit/BitcoinDevKit.swift ../../dist/Sources/BitcoinDevKit/BitcoinDevKit.swift
+      #     cd ../../dist
+      #     git add Sources/BitcoinDevKit/BitcoinDevKit.swift
+      #     git add Package.swift
+      #     git commit -m "Update BitcoinDevKit.swift and Package.swift for release ${{ inputs.version }}"
+      #     git push
+      #     git tag ${{ inputs.version }} -m "Release ${{ inputs.version }}"
+      #     git push --tags
+
+      - name: "Create release"
         uses: ncipollo/release-action@v1
         with:
           artifacts: "build/bdk-swift/bdkFFI.xcframework.zip"
