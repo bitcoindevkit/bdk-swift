@@ -1,9 +1,13 @@
-name: Build, tag and create release
+name: Build, Tag and Create Release
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New release version, eg. 0.MINOR.PATCH'
+        description: "New release version, eg. 0.MINOR.PATCH"
+        required: true
+        type: string
+      ffitag:
+        description: "The bdk-ffi tag to use for the release"
         required: true
         type: string
 
@@ -17,7 +21,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/bdk-ffi
           path: build
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.ffitag }}
 
       - name: Checkout dist repo
         uses: actions/checkout@v3
