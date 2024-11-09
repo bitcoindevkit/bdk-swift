@@ -35,7 +35,7 @@ jobs:
           ./build-xcframework.sh
           # remove old xcframework zip
           rm bdkFFI.xcframework.zip || true
-          zip -9 -r bdkFFI.xcframework.zip bdkFFI.xcframework
+          zip -9 -r bdkFFI.xcframework.zip bdkffi.xcframework
           echo "BDKFFICHECKSUM=`swift package compute-checksum bdkFFI.xcframework.zip`" >> $GITHUB_ENV
           echo "BDKFFIURL=https\:\/\/github\.com\/${{ github.repository_owner }}\/bdk\-swift\/releases\/download\/${{ inputs.version }}\/bdkFFI\.xcframework\.zip" >> $GITHUB_ENV
 
@@ -45,11 +45,10 @@ jobs:
           echo checksum = ${{ env.BDKFFICHECKSUM }}
           echo url = ${{ env.BDKFFIURL }}
           sed "s/BDKFFICHECKSUM/${BDKFFICHECKSUM}/;s/BDKFFIURL/${BDKFFIURL}/" Package.swift.txt > ../../dist/Package.swift
-          cp Sources/BitcoinDevKit/BitcoinDevKit.swift ../../dist/Sources/BitcoinDevKit/BitcoinDevKit.swift
-          cp Sources/BitcoinDevKit/Bitcoin.swift ../../dist/Sources/BitcoinDevKit/Bitcoin.swift
+          mkdir -p ../../dist/Sources/BitcoinDevKit
+          cp Sources/BitcoinDevKit/bdk.swift ../../dist/Sources/BitcoinDevKit/BitcoinDevKit.swift
           cd ../../dist
           git add Sources/BitcoinDevKit/BitcoinDevKit.swift
-          git add Sources/BitcoinDevKit/Bitcoin.swift
           git add Package.swift
           git commit -m "Update BitcoinDevKit.swift and Package.swift for release ${{ inputs.version }}"
           git push
