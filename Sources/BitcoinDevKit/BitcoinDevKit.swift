@@ -657,14 +657,75 @@ public func FfiConverterTypeAddress_lower(_ value: Address) -> UnsafeMutableRawP
 
 
 
+/**
+ * A `BumpFeeTxBuilder` is created by calling `build_fee_bump` on a wallet. After assigning it, you set options on it
+ * until finally calling `finish` to consume the builder and generate the transaction.
+ */
 public protocol BumpFeeTxBuilderProtocol : AnyObject {
     
+    /**
+     * Set whether or not the dust limit is checked.
+     *
+     * Note: by avoiding a dust limit check you may end up with a transaction that is non-standard.
+     */
+    func allowDust(allowDust: Bool)  -> BumpFeeTxBuilder
+    
+    /**
+     * Set the current blockchain height.
+     *
+     * This will be used to:
+     *
+     * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
+     * `nlocktime` using `TxBuilder::nlocktime`.
+     *
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
+     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * manually add them using `TxBuilder::add_utxos`.
+     * In both cases, if you don’t provide a current height, we use the last sync height.
+     */
+    func currentHeight(height: UInt32)  -> BumpFeeTxBuilder
+    
+    /**
+     * Finish building the transaction.
+     *
+     * Uses the thread-local random number generator (rng).
+     *
+     * Returns a new `Psbt` per BIP174.
+     *
+     * WARNING: To avoid change address reuse you must persist the changes resulting from one or more calls to this
+     * method before closing the wallet. See `Wallet::reveal_next_address`.
+     */
     func finish(wallet: Wallet) throws  -> Psbt
     
+    /**
+     * Use a specific nLockTime while creating the transaction.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "after" (`OP_CLTV`) operator.
+     */
+    func nlocktime(locktime: LockTime)  -> BumpFeeTxBuilder
+    
+    /**
+     * Set an exact `nSequence` value.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "older" (`OP_CSV`) operator and the given
+     * `nsequence` is lower than the CSV value.
+     */
     func setExactSequence(nsequence: UInt32)  -> BumpFeeTxBuilder
+    
+    /**
+     * Build a transaction with a specific version.
+     *
+     * The version should always be greater than 0 and greater than 1 if the wallet’s descriptors contain an "older"
+     * (`OP_CSV`) operator.
+     */
+    func version(version: Int32)  -> BumpFeeTxBuilder
     
 }
 
+/**
+ * A `BumpFeeTxBuilder` is created by calling `build_fee_bump` on a wallet. After assigning it, you set options on it
+ * until finally calling `finish` to consume the builder and generate the transaction.
+ */
 open class BumpFeeTxBuilder:
     BumpFeeTxBuilderProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -715,6 +776,50 @@ public convenience init(txid: String, feeRate: FeeRate) {
     
 
     
+    /**
+     * Set whether or not the dust limit is checked.
+     *
+     * Note: by avoiding a dust limit check you may end up with a transaction that is non-standard.
+     */
+open func allowDust(allowDust: Bool) -> BumpFeeTxBuilder {
+    return try!  FfiConverterTypeBumpFeeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_bumpfeetxbuilder_allow_dust(self.uniffiClonePointer(),
+        FfiConverterBool.lower(allowDust),$0
+    )
+})
+}
+    
+    /**
+     * Set the current blockchain height.
+     *
+     * This will be used to:
+     *
+     * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
+     * `nlocktime` using `TxBuilder::nlocktime`.
+     *
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
+     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * manually add them using `TxBuilder::add_utxos`.
+     * In both cases, if you don’t provide a current height, we use the last sync height.
+     */
+open func currentHeight(height: UInt32) -> BumpFeeTxBuilder {
+    return try!  FfiConverterTypeBumpFeeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_bumpfeetxbuilder_current_height(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(height),$0
+    )
+})
+}
+    
+    /**
+     * Finish building the transaction.
+     *
+     * Uses the thread-local random number generator (rng).
+     *
+     * Returns a new `Psbt` per BIP174.
+     *
+     * WARNING: To avoid change address reuse you must persist the changes resulting from one or more calls to this
+     * method before closing the wallet. See `Wallet::reveal_next_address`.
+     */
 open func finish(wallet: Wallet)throws  -> Psbt {
     return try  FfiConverterTypePsbt.lift(try rustCallWithError(FfiConverterTypeCreateTxError.lift) {
     uniffi_bdkffi_fn_method_bumpfeetxbuilder_finish(self.uniffiClonePointer(),
@@ -723,10 +828,43 @@ open func finish(wallet: Wallet)throws  -> Psbt {
 })
 }
     
+    /**
+     * Use a specific nLockTime while creating the transaction.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "after" (`OP_CLTV`) operator.
+     */
+open func nlocktime(locktime: LockTime) -> BumpFeeTxBuilder {
+    return try!  FfiConverterTypeBumpFeeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_bumpfeetxbuilder_nlocktime(self.uniffiClonePointer(),
+        FfiConverterTypeLockTime.lower(locktime),$0
+    )
+})
+}
+    
+    /**
+     * Set an exact `nSequence` value.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "older" (`OP_CSV`) operator and the given
+     * `nsequence` is lower than the CSV value.
+     */
 open func setExactSequence(nsequence: UInt32) -> BumpFeeTxBuilder {
     return try!  FfiConverterTypeBumpFeeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_bumpfeetxbuilder_set_exact_sequence(self.uniffiClonePointer(),
         FfiConverterUInt32.lower(nsequence),$0
+    )
+})
+}
+    
+    /**
+     * Build a transaction with a specific version.
+     *
+     * The version should always be greater than 0 and greater than 1 if the wallet’s descriptors contain an "older"
+     * (`OP_CSV`) operator.
+     */
+open func version(version: Int32) -> BumpFeeTxBuilder {
+    return try!  FfiConverterTypeBumpFeeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_bumpfeetxbuilder_version(self.uniffiClonePointer(),
+        FfiConverterInt32.lower(version),$0
     )
 })
 }
@@ -779,10 +917,16 @@ public func FfiConverterTypeBumpFeeTxBuilder_lower(_ value: BumpFeeTxBuilder) ->
 
 
 
+/**
+ * A changeset for [`Wallet`].
+ */
 public protocol ChangeSetProtocol : AnyObject {
     
 }
 
+/**
+ * A changeset for [`Wallet`].
+ */
 open class ChangeSet:
     ChangeSetProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -1083,6 +1227,19 @@ public func FfiConverterTypeDerivationPath_lower(_ value: DerivationPath) -> Uns
 
 public protocol DescriptorProtocol : AnyObject {
     
+    /**
+     * Whether or not this key has multiple derivation paths.
+     */
+    func isMultipath()  -> Bool
+    
+    /**
+     * Get as many descriptors as different paths in this descriptor.
+     *
+     * For multipath descriptors it will return as many descriptors as there is
+     * "parallel" paths. For regular descriptors it will just return itself.
+     */
+    func toSingleDescriptors() throws  -> [Descriptor]
+    
     func toStringWithSecret()  -> String
     
 }
@@ -1222,6 +1379,29 @@ public static func newBip86Public(publicKey: DescriptorPublicKey, fingerprint: S
     
 
     
+    /**
+     * Whether or not this key has multiple derivation paths.
+     */
+open func isMultipath() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptor_is_multipath(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Get as many descriptors as different paths in this descriptor.
+     *
+     * For multipath descriptors it will return as many descriptors as there is
+     * "parallel" paths. For regular descriptors it will just return itself.
+     */
+open func toSingleDescriptors()throws  -> [Descriptor] {
+    return try  FfiConverterSequenceTypeDescriptor.lift(try rustCallWithError(FfiConverterTypeMiniscriptError.lift) {
+    uniffi_bdkffi_fn_method_descriptor_to_single_descriptors(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
 open func toStringWithSecret() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_descriptor_to_string_with_secret(self.uniffiClonePointer(),$0
@@ -1293,6 +1473,16 @@ public protocol DescriptorPublicKeyProtocol : AnyObject {
     
     func extend(path: DerivationPath) throws  -> DescriptorPublicKey
     
+    /**
+     * Whether or not this key has multiple derivation paths.
+     */
+    func isMultipath()  -> Bool
+    
+    /**
+     * The fingerprint of the master key associated with this key, `0x00000000` if none.
+     */
+    func masterFingerprint()  -> String
+    
 }
 
 open class DescriptorPublicKey:
@@ -1363,6 +1553,26 @@ open func extend(path: DerivationPath)throws  -> DescriptorPublicKey {
     return try  FfiConverterTypeDescriptorPublicKey.lift(try rustCallWithError(FfiConverterTypeDescriptorKeyError.lift) {
     uniffi_bdkffi_fn_method_descriptorpublickey_extend(self.uniffiClonePointer(),
         FfiConverterTypeDerivationPath.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * Whether or not this key has multiple derivation paths.
+     */
+open func isMultipath() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorpublickey_is_multipath(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The fingerprint of the master key associated with this key, `0x00000000` if none.
+     */
+open func masterFingerprint() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorpublickey_master_fingerprint(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -1715,6 +1925,8 @@ public protocol EsploraClientProtocol : AnyObject {
     
     func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, parallelRequests: UInt64) throws  -> Update
     
+    func getHeight() throws  -> UInt32
+    
     func getTx(txid: String) throws  -> Transaction?
     
     func sync(syncRequest: SyncRequest, parallelRequests: UInt64) throws  -> Update
@@ -1783,6 +1995,13 @@ open func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, parallelRe
         FfiConverterTypeFullScanRequest.lower(fullScanRequest),
         FfiConverterUInt64.lower(stopGap),
         FfiConverterUInt64.lower(parallelRequests),$0
+    )
+})
+}
+    
+open func getHeight()throws  -> UInt32 {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
+    uniffi_bdkffi_fn_method_esploraclient_get_height(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -1945,6 +2164,9 @@ public func FfiConverterTypeFullScanRequest_lower(_ value: FullScanRequest) -> U
 
 
 
+/**
+ * Builds a [`FullScanRequest`].
+ */
 public protocol FullScanRequestBuilderProtocol : AnyObject {
     
     func build() throws  -> FullScanRequest
@@ -1953,6 +2175,9 @@ public protocol FullScanRequestBuilderProtocol : AnyObject {
     
 }
 
+/**
+ * Builds a [`FullScanRequest`].
+ */
 open class FullScanRequestBuilder:
     FullScanRequestBuilderProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -2345,6 +2570,153 @@ public func FfiConverterTypeMnemonic_lower(_ value: Mnemonic) -> UnsafeMutableRa
 
 
 
+public protocol PolicyProtocol : AnyObject {
+    
+    func asString()  -> String
+    
+    func contribution()  -> Satisfaction
+    
+    func id()  -> String
+    
+    func item()  -> SatisfiableItem
+    
+    func requiresPath()  -> Bool
+    
+    func satisfaction()  -> Satisfaction
+    
+}
+
+open class Policy:
+    PolicyProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    /// This constructor can be used to instantiate a fake object.
+    /// - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    ///
+    /// - Warning:
+    ///     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_bdkffi_fn_clone_policy(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_bdkffi_fn_free_policy(pointer, $0) }
+    }
+
+    
+
+    
+open func asString() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_as_string(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func contribution() -> Satisfaction {
+    return try!  FfiConverterTypeSatisfaction.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_contribution(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func id() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_id(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func item() -> SatisfiableItem {
+    return try!  FfiConverterTypeSatisfiableItem.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_item(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func requiresPath() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_requires_path(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func satisfaction() -> Satisfaction {
+    return try!  FfiConverterTypeSatisfaction.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_policy_satisfaction(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+
+}
+
+public struct FfiConverterTypePolicy: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = Policy
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Policy {
+        return Policy(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: Policy) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Policy {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: Policy, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+public func FfiConverterTypePolicy_lift(_ pointer: UnsafeMutableRawPointer) throws -> Policy {
+    return try FfiConverterTypePolicy.lift(pointer)
+}
+
+public func FfiConverterTypePolicy_lower(_ value: Policy) -> UnsafeMutableRawPointer {
+    return FfiConverterTypePolicy.lower(value)
+}
+
+
+
+
 public protocol PsbtProtocol : AnyObject {
     
     func combine(other: Psbt) throws  -> Psbt
@@ -2352,6 +2724,8 @@ public protocol PsbtProtocol : AnyObject {
     func extractTx() throws  -> Transaction
     
     func fee() throws  -> UInt64
+    
+    func finalize()  -> FinalizedPsbtResult
     
     func jsonSerialize()  -> String
     
@@ -2426,6 +2800,13 @@ open func extractTx()throws  -> Transaction {
 open func fee()throws  -> UInt64 {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypePsbtError.lift) {
     uniffi_bdkffi_fn_method_psbt_fee(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+open func finalize() -> FinalizedPsbtResult {
+    return try!  FfiConverterTypeFinalizedPsbtResult.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_psbt_finalize(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -2585,6 +2966,9 @@ public func FfiConverterTypeSyncRequest_lower(_ value: SyncRequest) -> UnsafeMut
 
 
 
+/**
+ * Builds a [`SyncRequest`].
+ */
 public protocol SyncRequestBuilderProtocol : AnyObject {
     
     func build() throws  -> SyncRequest
@@ -2593,6 +2977,9 @@ public protocol SyncRequestBuilderProtocol : AnyObject {
     
 }
 
+/**
+ * Builds a [`SyncRequest`].
+ */
 open class SyncRequestBuilder:
     SyncRequestBuilderProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -3059,42 +3446,196 @@ public func FfiConverterTypeTransaction_lower(_ value: Transaction) -> UnsafeMut
 
 
 
+/**
+ * A `TxBuilder` is created by calling `build_tx` on a wallet. After assigning it, you set options on it until finally
+ * calling `finish` to consume the builder and generate the transaction.
+ */
 public protocol TxBuilderProtocol : AnyObject {
     
+    /**
+     * Add data as an output using `OP_RETURN`.
+     */
+    func addData(data: [UInt8])  -> TxBuilder
+    
+    /**
+     * Fill-in the `PSBT_GLOBAL_XPUB` field with the extended keys contained in both the external and internal
+     * descriptors.
+     *
+     * This is useful for offline signers that take part to a multisig. Some hardware wallets like BitBox and ColdCard
+     * are known to require this.
+     */
     func addGlobalXpubs()  -> TxBuilder
     
+    /**
+     * Add a recipient to the internal list of recipients.
+     */
     func addRecipient(script: Script, amount: Amount)  -> TxBuilder
     
+    /**
+     * Add a utxo to the internal list of unspendable utxos.
+     *
+     * It’s important to note that the "must-be-spent" utxos added with `TxBuilder::add_utxo` have priority over this.
+     */
     func addUnspendable(unspendable: OutPoint)  -> TxBuilder
     
+    /**
+     * Add a utxo to the internal list of utxos that must be spent.
+     *
+     * These have priority over the "unspendable" utxos, meaning that if a utxo is present both in the "utxos" and the
+     * "unspendable" list, it will be spent.
+     */
     func addUtxo(outpoint: OutPoint)  -> TxBuilder
     
+    /**
+     * Set whether or not the dust limit is checked.
+     *
+     * Note: by avoiding a dust limit check you may end up with a transaction that is non-standard.
+     */
+    func allowDust(allowDust: Bool)  -> TxBuilder
+    
+    /**
+     * Set a specific `ChangeSpendPolicy`. See `TxBuilder::do_not_spend_change` and `TxBuilder::only_spend_change` for
+     * some shortcuts. This method assumes the presence of an internal keychain, otherwise it has no effect.
+     */
     func changePolicy(changePolicy: ChangeSpendPolicy)  -> TxBuilder
     
+    /**
+     * Set the current blockchain height.
+     *
+     * This will be used to:
+     *
+     * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
+     * `nlocktime` using `TxBuilder::nlocktime`.
+     *
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
+     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * manually add them using `TxBuilder::add_utxos`.
+     * In both cases, if you don’t provide a current height, we use the last sync height.
+     */
+    func currentHeight(height: UInt32)  -> TxBuilder
+    
+    /**
+     * Do not spend change outputs.
+     *
+     * This effectively adds all the change outputs to the "unspendable" list. See `TxBuilder::unspendable`. This method
+     * assumes the presence of an internal keychain, otherwise it has no effect.
+     */
     func doNotSpendChange()  -> TxBuilder
     
+    /**
+     * Sets the address to drain excess coins to.
+     *
+     * Usually, when there are excess coins they are sent to a change address generated by the wallet. This option
+     * replaces the usual change address with an arbitrary script_pubkey of your choosing. Just as with a change output,
+     * if the drain output is not needed (the excess coins are too small) it will not be included in the resulting
+     * transaction. The only difference is that it is valid to use `drain_to` without setting any ordinary recipients
+     * with `add_recipient` (but it is perfectly fine to add recipients as well).
+     *
+     * If you choose not to set any recipients, you should provide the utxos that the transaction should spend via
+     * `add_utxos`. `drain_to` is very useful for draining all the coins in a wallet with `drain_wallet` to a single
+     * address.
+     */
     func drainTo(script: Script)  -> TxBuilder
     
+    /**
+     * Spend all the available inputs. This respects filters like `TxBuilder::unspendable` and the change policy.
+     */
     func drainWallet()  -> TxBuilder
     
+    /**
+     * Set an absolute fee The `fee_absolute` method refers to the absolute transaction fee in `Amount`. If anyone sets
+     * both the `fee_absolute` method and the `fee_rate` method, the `FeePolicy` enum will be set by whichever method was
+     * called last, as the `FeeRate` and `FeeAmount` are mutually exclusive.
+     *
+     * Note that this is really a minimum absolute fee – it’s possible to overshoot it slightly since adding a change output to drain the remaining excess might not be viable.
+     */
     func feeAbsolute(fee: Amount)  -> TxBuilder
     
+    /**
+     * Set a custom fee rate.
+     *
+     * This method sets the mining fee paid by the transaction as a rate on its size. This means that the total fee paid
+     * is equal to fee_rate times the size of the transaction. Default is 1 sat/vB in accordance with Bitcoin Core’s
+     * default relay policy.
+     *
+     * Note that this is really a minimum feerate – it’s possible to overshoot it slightly since adding a change output
+     * to drain the remaining excess might not be viable.
+     */
     func feeRate(feeRate: FeeRate)  -> TxBuilder
     
+    /**
+     * Finish building the transaction.
+     *
+     * Uses the thread-local random number generator (rng).
+     *
+     * Returns a new `Psbt` per BIP174.
+     *
+     * WARNING: To avoid change address reuse you must persist the changes resulting from one or more calls to this
+     * method before closing the wallet. See `Wallet::reveal_next_address`.
+     */
     func finish(wallet: Wallet) throws  -> Psbt
     
+    /**
+     * Only spend utxos added by `TxBuilder::add_utxo`.
+     *
+     * The wallet will not add additional utxos to the transaction even if they are needed to make the transaction valid.
+     */
     func manuallySelectedOnly()  -> TxBuilder
     
+    /**
+     * Use a specific nLockTime while creating the transaction.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "after" (`OP_CLTV`) operator.
+     */
+    func nlocktime(locktime: LockTime)  -> TxBuilder
+    
+    /**
+     * Only spend change outputs.
+     *
+     * This effectively adds all the non-change outputs to the "unspendable" list. See `TxBuilder::unspendable`. This
+     * method assumes the presence of an internal keychain, otherwise it has no effect.
+     */
     func onlySpendChange()  -> TxBuilder
     
+    /**
+     * The TxBuilder::policy_path is a complex API. See the Rust docs for complete information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.TxBuilder.html#method.policy_path
+     */
+    func policyPath(policyPath: [String: [UInt64]], keychain: KeychainKind)  -> TxBuilder
+    
+    /**
+     * Set an exact `nSequence` value.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "older" (`OP_CSV`) operator and the given
+     * `nsequence` is lower than the CSV value.
+     */
     func setExactSequence(nsequence: UInt32)  -> TxBuilder
     
+    /**
+     * Replace the recipients already added with a new list of recipients.
+     */
     func setRecipients(recipients: [ScriptAmount])  -> TxBuilder
     
+    /**
+     * Replace the internal list of unspendable utxos with a new list.
+     *
+     * It’s important to note that the "must-be-spent" utxos added with `TxBuilder::add_utxo` have priority over these.
+     */
     func unspendable(unspendable: [OutPoint])  -> TxBuilder
+    
+    /**
+     * Build a transaction with a specific version.
+     *
+     * The version should always be greater than 0 and greater than 1 if the wallet’s descriptors contain an "older"
+     * (`OP_CSV`) operator.
+     */
+    func version(version: Int32)  -> TxBuilder
     
 }
 
+/**
+ * A `TxBuilder` is created by calling `build_tx` on a wallet. After assigning it, you set options on it until finally
+ * calling `finish` to consume the builder and generate the transaction.
+ */
 open class TxBuilder:
     TxBuilderProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -3143,6 +3684,24 @@ public convenience init() {
     
 
     
+    /**
+     * Add data as an output using `OP_RETURN`.
+     */
+open func addData(data: [UInt8]) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_add_data(self.uniffiClonePointer(),
+        FfiConverterSequenceUInt8.lower(data),$0
+    )
+})
+}
+    
+    /**
+     * Fill-in the `PSBT_GLOBAL_XPUB` field with the extended keys contained in both the external and internal
+     * descriptors.
+     *
+     * This is useful for offline signers that take part to a multisig. Some hardware wallets like BitBox and ColdCard
+     * are known to require this.
+     */
 open func addGlobalXpubs() -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_add_global_xpubs(self.uniffiClonePointer(),$0
@@ -3150,6 +3709,9 @@ open func addGlobalXpubs() -> TxBuilder {
 })
 }
     
+    /**
+     * Add a recipient to the internal list of recipients.
+     */
 open func addRecipient(script: Script, amount: Amount) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_add_recipient(self.uniffiClonePointer(),
@@ -3159,6 +3721,11 @@ open func addRecipient(script: Script, amount: Amount) -> TxBuilder {
 })
 }
     
+    /**
+     * Add a utxo to the internal list of unspendable utxos.
+     *
+     * It’s important to note that the "must-be-spent" utxos added with `TxBuilder::add_utxo` have priority over this.
+     */
 open func addUnspendable(unspendable: OutPoint) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_add_unspendable(self.uniffiClonePointer(),
@@ -3167,6 +3734,12 @@ open func addUnspendable(unspendable: OutPoint) -> TxBuilder {
 })
 }
     
+    /**
+     * Add a utxo to the internal list of utxos that must be spent.
+     *
+     * These have priority over the "unspendable" utxos, meaning that if a utxo is present both in the "utxos" and the
+     * "unspendable" list, it will be spent.
+     */
 open func addUtxo(outpoint: OutPoint) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_add_utxo(self.uniffiClonePointer(),
@@ -3175,6 +3748,23 @@ open func addUtxo(outpoint: OutPoint) -> TxBuilder {
 })
 }
     
+    /**
+     * Set whether or not the dust limit is checked.
+     *
+     * Note: by avoiding a dust limit check you may end up with a transaction that is non-standard.
+     */
+open func allowDust(allowDust: Bool) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_allow_dust(self.uniffiClonePointer(),
+        FfiConverterBool.lower(allowDust),$0
+    )
+})
+}
+    
+    /**
+     * Set a specific `ChangeSpendPolicy`. See `TxBuilder::do_not_spend_change` and `TxBuilder::only_spend_change` for
+     * some shortcuts. This method assumes the presence of an internal keychain, otherwise it has no effect.
+     */
 open func changePolicy(changePolicy: ChangeSpendPolicy) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_change_policy(self.uniffiClonePointer(),
@@ -3183,6 +3773,33 @@ open func changePolicy(changePolicy: ChangeSpendPolicy) -> TxBuilder {
 })
 }
     
+    /**
+     * Set the current blockchain height.
+     *
+     * This will be used to:
+     *
+     * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
+     * `nlocktime` using `TxBuilder::nlocktime`.
+     *
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
+     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * manually add them using `TxBuilder::add_utxos`.
+     * In both cases, if you don’t provide a current height, we use the last sync height.
+     */
+open func currentHeight(height: UInt32) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_current_height(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(height),$0
+    )
+})
+}
+    
+    /**
+     * Do not spend change outputs.
+     *
+     * This effectively adds all the change outputs to the "unspendable" list. See `TxBuilder::unspendable`. This method
+     * assumes the presence of an internal keychain, otherwise it has no effect.
+     */
 open func doNotSpendChange() -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_do_not_spend_change(self.uniffiClonePointer(),$0
@@ -3190,6 +3807,19 @@ open func doNotSpendChange() -> TxBuilder {
 })
 }
     
+    /**
+     * Sets the address to drain excess coins to.
+     *
+     * Usually, when there are excess coins they are sent to a change address generated by the wallet. This option
+     * replaces the usual change address with an arbitrary script_pubkey of your choosing. Just as with a change output,
+     * if the drain output is not needed (the excess coins are too small) it will not be included in the resulting
+     * transaction. The only difference is that it is valid to use `drain_to` without setting any ordinary recipients
+     * with `add_recipient` (but it is perfectly fine to add recipients as well).
+     *
+     * If you choose not to set any recipients, you should provide the utxos that the transaction should spend via
+     * `add_utxos`. `drain_to` is very useful for draining all the coins in a wallet with `drain_wallet` to a single
+     * address.
+     */
 open func drainTo(script: Script) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_drain_to(self.uniffiClonePointer(),
@@ -3198,6 +3828,9 @@ open func drainTo(script: Script) -> TxBuilder {
 })
 }
     
+    /**
+     * Spend all the available inputs. This respects filters like `TxBuilder::unspendable` and the change policy.
+     */
 open func drainWallet() -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_drain_wallet(self.uniffiClonePointer(),$0
@@ -3205,6 +3838,13 @@ open func drainWallet() -> TxBuilder {
 })
 }
     
+    /**
+     * Set an absolute fee The `fee_absolute` method refers to the absolute transaction fee in `Amount`. If anyone sets
+     * both the `fee_absolute` method and the `fee_rate` method, the `FeePolicy` enum will be set by whichever method was
+     * called last, as the `FeeRate` and `FeeAmount` are mutually exclusive.
+     *
+     * Note that this is really a minimum absolute fee – it’s possible to overshoot it slightly since adding a change output to drain the remaining excess might not be viable.
+     */
 open func feeAbsolute(fee: Amount) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_fee_absolute(self.uniffiClonePointer(),
@@ -3213,6 +3853,16 @@ open func feeAbsolute(fee: Amount) -> TxBuilder {
 })
 }
     
+    /**
+     * Set a custom fee rate.
+     *
+     * This method sets the mining fee paid by the transaction as a rate on its size. This means that the total fee paid
+     * is equal to fee_rate times the size of the transaction. Default is 1 sat/vB in accordance with Bitcoin Core’s
+     * default relay policy.
+     *
+     * Note that this is really a minimum feerate – it’s possible to overshoot it slightly since adding a change output
+     * to drain the remaining excess might not be viable.
+     */
 open func feeRate(feeRate: FeeRate) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_fee_rate(self.uniffiClonePointer(),
@@ -3221,6 +3871,16 @@ open func feeRate(feeRate: FeeRate) -> TxBuilder {
 })
 }
     
+    /**
+     * Finish building the transaction.
+     *
+     * Uses the thread-local random number generator (rng).
+     *
+     * Returns a new `Psbt` per BIP174.
+     *
+     * WARNING: To avoid change address reuse you must persist the changes resulting from one or more calls to this
+     * method before closing the wallet. See `Wallet::reveal_next_address`.
+     */
 open func finish(wallet: Wallet)throws  -> Psbt {
     return try  FfiConverterTypePsbt.lift(try rustCallWithError(FfiConverterTypeCreateTxError.lift) {
     uniffi_bdkffi_fn_method_txbuilder_finish(self.uniffiClonePointer(),
@@ -3229,6 +3889,11 @@ open func finish(wallet: Wallet)throws  -> Psbt {
 })
 }
     
+    /**
+     * Only spend utxos added by `TxBuilder::add_utxo`.
+     *
+     * The wallet will not add additional utxos to the transaction even if they are needed to make the transaction valid.
+     */
 open func manuallySelectedOnly() -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_manually_selected_only(self.uniffiClonePointer(),$0
@@ -3236,6 +3901,25 @@ open func manuallySelectedOnly() -> TxBuilder {
 })
 }
     
+    /**
+     * Use a specific nLockTime while creating the transaction.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "after" (`OP_CLTV`) operator.
+     */
+open func nlocktime(locktime: LockTime) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_nlocktime(self.uniffiClonePointer(),
+        FfiConverterTypeLockTime.lower(locktime),$0
+    )
+})
+}
+    
+    /**
+     * Only spend change outputs.
+     *
+     * This effectively adds all the non-change outputs to the "unspendable" list. See `TxBuilder::unspendable`. This
+     * method assumes the presence of an internal keychain, otherwise it has no effect.
+     */
 open func onlySpendChange() -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_only_spend_change(self.uniffiClonePointer(),$0
@@ -3243,6 +3927,24 @@ open func onlySpendChange() -> TxBuilder {
 })
 }
     
+    /**
+     * The TxBuilder::policy_path is a complex API. See the Rust docs for complete information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.TxBuilder.html#method.policy_path
+     */
+open func policyPath(policyPath: [String: [UInt64]], keychain: KeychainKind) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_policy_path(self.uniffiClonePointer(),
+        FfiConverterDictionaryStringSequenceUInt64.lower(policyPath),
+        FfiConverterTypeKeychainKind.lower(keychain),$0
+    )
+})
+}
+    
+    /**
+     * Set an exact `nSequence` value.
+     *
+     * This can cause conflicts if the wallet’s descriptors contain an "older" (`OP_CSV`) operator and the given
+     * `nsequence` is lower than the CSV value.
+     */
 open func setExactSequence(nsequence: UInt32) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_set_exact_sequence(self.uniffiClonePointer(),
@@ -3251,6 +3953,9 @@ open func setExactSequence(nsequence: UInt32) -> TxBuilder {
 })
 }
     
+    /**
+     * Replace the recipients already added with a new list of recipients.
+     */
 open func setRecipients(recipients: [ScriptAmount]) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_set_recipients(self.uniffiClonePointer(),
@@ -3259,10 +3964,29 @@ open func setRecipients(recipients: [ScriptAmount]) -> TxBuilder {
 })
 }
     
+    /**
+     * Replace the internal list of unspendable utxos with a new list.
+     *
+     * It’s important to note that the "must-be-spent" utxos added with `TxBuilder::add_utxo` have priority over these.
+     */
 open func unspendable(unspendable: [OutPoint]) -> TxBuilder {
     return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_unspendable(self.uniffiClonePointer(),
         FfiConverterSequenceTypeOutPoint.lower(unspendable),$0
+    )
+})
+}
+    
+    /**
+     * Build a transaction with a specific version.
+     *
+     * The version should always be greater than 0 and greater than 1 if the wallet’s descriptors contain an "older"
+     * (`OP_CSV`) operator.
+     */
+open func version(version: Int32) -> TxBuilder {
+    return try!  FfiConverterTypeTxBuilder.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_version(self.uniffiClonePointer(),
+        FfiConverterInt32.lower(version),$0
     )
 })
 }
@@ -3410,60 +4134,240 @@ public func FfiConverterTypeUpdate_lower(_ value: Update) -> UnsafeMutableRawPoi
 
 public protocol WalletProtocol : AnyObject {
     
+    /**
+     * Applies an update to the wallet and stages the changes (but does not persist them).
+     *
+     * Usually you create an `update` by interacting with some blockchain data source and inserting
+     * transactions related to your wallet into it.
+     *
+     * After applying updates you should persist the staged wallet changes. For an example of how
+     * to persist staged wallet changes see [`Wallet::reveal_next_address`].
+     */
     func applyUpdate(update: Update) throws 
     
+    /**
+     * Return the balance, separated into available, trusted-pending, untrusted-pending and immature
+     * values.
+     */
     func balance()  -> Balance
     
+    /**
+     * Calculates the fee of a given transaction. Returns [`Amount::ZERO`] if `tx` is a coinbase transaction.
+     *
+     * To calculate the fee for a [`Transaction`] with inputs not owned by this wallet you must
+     * manually insert the TxOut(s) into the tx graph using the [`insert_txout`] function.
+     *
+     * Note `tx` does not have to be in the graph for this to work.
+     */
     func calculateFee(tx: Transaction) throws  -> Amount
     
+    /**
+     * Calculate the [`FeeRate`] for a given transaction.
+     *
+     * To calculate the fee rate for a [`Transaction`] with inputs not owned by this wallet you must
+     * manually insert the TxOut(s) into the tx graph using the [`insert_txout`] function.
+     *
+     * Note `tx` does not have to be in the graph for this to work.
+     */
     func calculateFeeRate(tx: Transaction) throws  -> FeeRate
     
+    /**
+     * Informs the wallet that you no longer intend to broadcast a tx that was built from it.
+     *
+     * This frees up the change address used when creating the tx for use in future transactions.
+     */
     func cancelTx(tx: Transaction) 
     
+    /**
+     * The derivation index of this wallet. It will return `None` if it has not derived any addresses.
+     * Otherwise, it will return the index of the highest address it has derived.
+     */
     func derivationIndex(keychain: KeychainKind)  -> UInt32?
     
+    /**
+     * Finds how the wallet derived the script pubkey `spk`.
+     *
+     * Will only return `Some(_)` if the wallet has given out the spk.
+     */
     func derivationOfSpk(spk: Script)  -> KeychainAndIndex?
     
+    /**
+     * Return the checksum of the public descriptor associated to `keychain`
+     *
+     * Internally calls [`Self::public_descriptor`] to fetch the right descriptor
+     */
     func descriptorChecksum(keychain: KeychainKind)  -> String
     
+    /**
+     * Finalize a PSBT, i.e., for each input determine if sufficient data is available to pass
+     * validation and construct the respective `scriptSig` or `scriptWitness`. Please refer to
+     * [BIP174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#Input_Finalizer),
+     * and [BIP371](https://github.com/bitcoin/bips/blob/master/bip-0371.mediawiki)
+     * for further information.
+     *
+     * Returns `true` if the PSBT could be finalized, and `false` otherwise.
+     *
+     * The [`SignOptions`] can be used to tweak the behavior of the finalizer.
+     */
     func finalizePsbt(psbt: Psbt) throws  -> Bool
     
+    /**
+     * Get a single transaction from the wallet as a [`WalletTx`] (if the transaction exists).
+     *
+     * `WalletTx` contains the full transaction alongside meta-data such as:
+     * * Blocks that the transaction is [`Anchor`]ed in. These may or may not be blocks that exist
+     *   in the best chain.
+     * * The [`ChainPosition`] of the transaction in the best chain - whether the transaction is
+     *   confirmed or unconfirmed. If the transaction is confirmed, the anchor which proves the
+     *   confirmation is provided. If the transaction is unconfirmed, the unix timestamp of when
+     *   the transaction was last seen in the mempool is provided.
+     */
     func getTx(txid: String) throws  -> CanonicalTx?
     
+    /**
+     * Returns the utxo owned by this wallet corresponding to `outpoint` if it exists in the
+     * wallet's database.
+     */
     func getUtxo(op: OutPoint)  -> LocalOutput?
     
+    /**
+     * Return whether or not a `script` is part of this wallet (either internal or external)
+     */
     func isMine(script: Script)  -> Bool
     
+    /**
+     * List all relevant outputs (includes both spent and unspent, confirmed and unconfirmed).
+     *
+     * To list only unspent outputs (UTXOs), use [`Wallet::list_unspent`] instead.
+     */
     func listOutput()  -> [LocalOutput]
     
+    /**
+     * Return the list of unspent outputs of this wallet
+     */
     func listUnspent()  -> [LocalOutput]
     
+    /**
+     * List addresses that are revealed but unused.
+     *
+     * Note if the returned iterator is empty you can reveal more addresses
+     * by using [`reveal_next_address`](Self::reveal_next_address) or
+     * [`reveal_addresses_to`](Self::reveal_addresses_to).
+     */
     func listUnusedAddresses(keychain: KeychainKind)  -> [AddressInfo]
     
+    /**
+     * Marks an address used of the given `keychain` at `index`.
+     *
+     * Returns whether the given index was present and then removed from the unused set.
+     */
     func markUsed(keychain: KeychainKind, index: UInt32)  -> Bool
     
+    /**
+     * Get the Bitcoin network the wallet is using.
+     */
     func network()  -> Network
     
+    /**
+     * The index of the next address that you would get if you were to ask the wallet for a new address
+     */
     func nextDerivationIndex(keychain: KeychainKind)  -> UInt32
     
+    /**
+     * Get the next unused address for the given `keychain`, i.e. the address with the lowest
+     * derivation index that hasn't been used.
+     *
+     * This will attempt to derive and reveal a new address if no newly revealed addresses
+     * are available. See also [`reveal_next_address`](Self::reveal_next_address).
+     *
+     * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
+     * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
+     */
     func nextUnusedAddress(keychain: KeychainKind)  -> AddressInfo
     
+    /**
+     * Peek an address of the given `keychain` at `index` without revealing it.
+     *
+     * For non-wildcard descriptors this returns the same address at every provided index.
+     *
+     * # Panics
+     *
+     * This panics when the caller requests for an address of derivation index greater than the
+     * [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki) max index.
+     */
     func peekAddress(keychain: KeychainKind, index: UInt32)  -> AddressInfo
     
     func persist(connection: Connection) throws  -> Bool
     
+    func policies(keychain: KeychainKind) throws  -> Policy?
+    
+    /**
+     * Reveal addresses up to and including the target `index` and return an iterator
+     * of newly revealed addresses.
+     *
+     * If the target `index` is unreachable, we make a best effort to reveal up to the last
+     * possible index. If all addresses up to the given `index` are already revealed, then
+     * no new addresses are returned.
+     *
+     * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
+     * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
+     */
     func revealAddressesTo(keychain: KeychainKind, index: UInt32)  -> [AddressInfo]
     
+    /**
+     * Attempt to reveal the next address of the given `keychain`.
+     *
+     * This will increment the keychain's derivation index. If the keychain's descriptor doesn't
+     * contain a wildcard or every address is already revealed up to the maximum derivation
+     * index defined in [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki),
+     * then the last revealed address will be returned.
+     */
     func revealNextAddress(keychain: KeychainKind)  -> AddressInfo
     
+    /**
+     * Compute the `tx`'s sent and received [`Amount`]s.
+     *
+     * This method returns a tuple `(sent, received)`. Sent is the sum of the txin amounts
+     * that spend from previous txouts tracked by this wallet. Received is the summation
+     * of this tx's outputs that send to script pubkeys tracked by this wallet.
+     */
     func sentAndReceived(tx: Transaction)  -> SentAndReceivedValues
     
+    /**
+     * Sign a transaction with all the wallet's signers, in the order specified by every signer's
+     * [`SignerOrdering`]. This function returns the `Result` type with an encapsulated `bool` that has the value true if the PSBT was finalized, or false otherwise.
+     *
+     * The [`SignOptions`] can be used to tweak the behavior of the software signers, and the way
+     * the transaction is finalized at the end. Note that it can't be guaranteed that *every*
+     * signers will follow the options, but the "software signers" (WIF keys and `xprv`) defined
+     * in this library will.
+     */
     func sign(psbt: Psbt) throws  -> Bool
     
+    /**
+     * Create a [`FullScanRequest] for this wallet.
+     *
+     * This is the first step when performing a spk-based wallet full scan, the returned
+     * [`FullScanRequest] collects iterators for the wallet's keychain script pub keys needed to
+     * start a blockchain full scan with a spk based blockchain client.
+     *
+     * This operation is generally only used when importing or restoring a previously used wallet
+     * in which the list of used scripts is not known.
+     */
     func startFullScan()  -> FullScanRequestBuilder
     
+    /**
+     * Create a partial [`SyncRequest`] for this wallet for all revealed spks.
+     *
+     * This is the first step when performing a spk-based wallet partial sync, the returned
+     * [`SyncRequest`] collects all revealed script pubkeys from the wallet keychain needed to
+     * start a blockchain sync with a spk based blockchain client.
+     */
     func startSyncWithRevealedSpks()  -> SyncRequestBuilder
     
+    /**
+     * Iterate over the transactions in the wallet.
+     */
     func transactions()  -> [CanonicalTx]
     
 }
@@ -3530,6 +4434,15 @@ public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, co
     
 
     
+    /**
+     * Applies an update to the wallet and stages the changes (but does not persist them).
+     *
+     * Usually you create an `update` by interacting with some blockchain data source and inserting
+     * transactions related to your wallet into it.
+     *
+     * After applying updates you should persist the staged wallet changes. For an example of how
+     * to persist staged wallet changes see [`Wallet::reveal_next_address`].
+     */
 open func applyUpdate(update: Update)throws  {try rustCallWithError(FfiConverterTypeCannotConnectError.lift) {
     uniffi_bdkffi_fn_method_wallet_apply_update(self.uniffiClonePointer(),
         FfiConverterTypeUpdate.lower(update),$0
@@ -3537,6 +4450,10 @@ open func applyUpdate(update: Update)throws  {try rustCallWithError(FfiConverter
 }
 }
     
+    /**
+     * Return the balance, separated into available, trusted-pending, untrusted-pending and immature
+     * values.
+     */
 open func balance() -> Balance {
     return try!  FfiConverterTypeBalance.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_balance(self.uniffiClonePointer(),$0
@@ -3544,6 +4461,14 @@ open func balance() -> Balance {
 })
 }
     
+    /**
+     * Calculates the fee of a given transaction. Returns [`Amount::ZERO`] if `tx` is a coinbase transaction.
+     *
+     * To calculate the fee for a [`Transaction`] with inputs not owned by this wallet you must
+     * manually insert the TxOut(s) into the tx graph using the [`insert_txout`] function.
+     *
+     * Note `tx` does not have to be in the graph for this to work.
+     */
 open func calculateFee(tx: Transaction)throws  -> Amount {
     return try  FfiConverterTypeAmount_lift(try rustCallWithError(FfiConverterTypeCalculateFeeError.lift) {
     uniffi_bdkffi_fn_method_wallet_calculate_fee(self.uniffiClonePointer(),
@@ -3552,6 +4477,14 @@ open func calculateFee(tx: Transaction)throws  -> Amount {
 })
 }
     
+    /**
+     * Calculate the [`FeeRate`] for a given transaction.
+     *
+     * To calculate the fee rate for a [`Transaction`] with inputs not owned by this wallet you must
+     * manually insert the TxOut(s) into the tx graph using the [`insert_txout`] function.
+     *
+     * Note `tx` does not have to be in the graph for this to work.
+     */
 open func calculateFeeRate(tx: Transaction)throws  -> FeeRate {
     return try  FfiConverterTypeFeeRate_lift(try rustCallWithError(FfiConverterTypeCalculateFeeError.lift) {
     uniffi_bdkffi_fn_method_wallet_calculate_fee_rate(self.uniffiClonePointer(),
@@ -3560,6 +4493,11 @@ open func calculateFeeRate(tx: Transaction)throws  -> FeeRate {
 })
 }
     
+    /**
+     * Informs the wallet that you no longer intend to broadcast a tx that was built from it.
+     *
+     * This frees up the change address used when creating the tx for use in future transactions.
+     */
 open func cancelTx(tx: Transaction) {try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_cancel_tx(self.uniffiClonePointer(),
         FfiConverterTypeTransaction.lower(tx),$0
@@ -3567,6 +4505,10 @@ open func cancelTx(tx: Transaction) {try! rustCall() {
 }
 }
     
+    /**
+     * The derivation index of this wallet. It will return `None` if it has not derived any addresses.
+     * Otherwise, it will return the index of the highest address it has derived.
+     */
 open func derivationIndex(keychain: KeychainKind) -> UInt32? {
     return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_derivation_index(self.uniffiClonePointer(),
@@ -3575,6 +4517,11 @@ open func derivationIndex(keychain: KeychainKind) -> UInt32? {
 })
 }
     
+    /**
+     * Finds how the wallet derived the script pubkey `spk`.
+     *
+     * Will only return `Some(_)` if the wallet has given out the spk.
+     */
 open func derivationOfSpk(spk: Script) -> KeychainAndIndex? {
     return try!  FfiConverterOptionTypeKeychainAndIndex.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_derivation_of_spk(self.uniffiClonePointer(),
@@ -3583,6 +4530,11 @@ open func derivationOfSpk(spk: Script) -> KeychainAndIndex? {
 })
 }
     
+    /**
+     * Return the checksum of the public descriptor associated to `keychain`
+     *
+     * Internally calls [`Self::public_descriptor`] to fetch the right descriptor
+     */
 open func descriptorChecksum(keychain: KeychainKind) -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_descriptor_checksum(self.uniffiClonePointer(),
@@ -3591,6 +4543,17 @@ open func descriptorChecksum(keychain: KeychainKind) -> String {
 })
 }
     
+    /**
+     * Finalize a PSBT, i.e., for each input determine if sufficient data is available to pass
+     * validation and construct the respective `scriptSig` or `scriptWitness`. Please refer to
+     * [BIP174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#Input_Finalizer),
+     * and [BIP371](https://github.com/bitcoin/bips/blob/master/bip-0371.mediawiki)
+     * for further information.
+     *
+     * Returns `true` if the PSBT could be finalized, and `false` otherwise.
+     *
+     * The [`SignOptions`] can be used to tweak the behavior of the finalizer.
+     */
 open func finalizePsbt(psbt: Psbt)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSignerError.lift) {
     uniffi_bdkffi_fn_method_wallet_finalize_psbt(self.uniffiClonePointer(),
@@ -3599,6 +4562,17 @@ open func finalizePsbt(psbt: Psbt)throws  -> Bool {
 })
 }
     
+    /**
+     * Get a single transaction from the wallet as a [`WalletTx`] (if the transaction exists).
+     *
+     * `WalletTx` contains the full transaction alongside meta-data such as:
+     * * Blocks that the transaction is [`Anchor`]ed in. These may or may not be blocks that exist
+     *   in the best chain.
+     * * The [`ChainPosition`] of the transaction in the best chain - whether the transaction is
+     *   confirmed or unconfirmed. If the transaction is confirmed, the anchor which proves the
+     *   confirmation is provided. If the transaction is unconfirmed, the unix timestamp of when
+     *   the transaction was last seen in the mempool is provided.
+     */
 open func getTx(txid: String)throws  -> CanonicalTx? {
     return try  FfiConverterOptionTypeCanonicalTx.lift(try rustCallWithError(FfiConverterTypeTxidParseError.lift) {
     uniffi_bdkffi_fn_method_wallet_get_tx(self.uniffiClonePointer(),
@@ -3607,6 +4581,10 @@ open func getTx(txid: String)throws  -> CanonicalTx? {
 })
 }
     
+    /**
+     * Returns the utxo owned by this wallet corresponding to `outpoint` if it exists in the
+     * wallet's database.
+     */
 open func getUtxo(op: OutPoint) -> LocalOutput? {
     return try!  FfiConverterOptionTypeLocalOutput.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_get_utxo(self.uniffiClonePointer(),
@@ -3615,6 +4593,9 @@ open func getUtxo(op: OutPoint) -> LocalOutput? {
 })
 }
     
+    /**
+     * Return whether or not a `script` is part of this wallet (either internal or external)
+     */
 open func isMine(script: Script) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_is_mine(self.uniffiClonePointer(),
@@ -3623,6 +4604,11 @@ open func isMine(script: Script) -> Bool {
 })
 }
     
+    /**
+     * List all relevant outputs (includes both spent and unspent, confirmed and unconfirmed).
+     *
+     * To list only unspent outputs (UTXOs), use [`Wallet::list_unspent`] instead.
+     */
 open func listOutput() -> [LocalOutput] {
     return try!  FfiConverterSequenceTypeLocalOutput.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_list_output(self.uniffiClonePointer(),$0
@@ -3630,6 +4616,9 @@ open func listOutput() -> [LocalOutput] {
 })
 }
     
+    /**
+     * Return the list of unspent outputs of this wallet
+     */
 open func listUnspent() -> [LocalOutput] {
     return try!  FfiConverterSequenceTypeLocalOutput.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_list_unspent(self.uniffiClonePointer(),$0
@@ -3637,6 +4626,13 @@ open func listUnspent() -> [LocalOutput] {
 })
 }
     
+    /**
+     * List addresses that are revealed but unused.
+     *
+     * Note if the returned iterator is empty you can reveal more addresses
+     * by using [`reveal_next_address`](Self::reveal_next_address) or
+     * [`reveal_addresses_to`](Self::reveal_addresses_to).
+     */
 open func listUnusedAddresses(keychain: KeychainKind) -> [AddressInfo] {
     return try!  FfiConverterSequenceTypeAddressInfo.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_list_unused_addresses(self.uniffiClonePointer(),
@@ -3645,6 +4641,11 @@ open func listUnusedAddresses(keychain: KeychainKind) -> [AddressInfo] {
 })
 }
     
+    /**
+     * Marks an address used of the given `keychain` at `index`.
+     *
+     * Returns whether the given index was present and then removed from the unused set.
+     */
 open func markUsed(keychain: KeychainKind, index: UInt32) -> Bool {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_mark_used(self.uniffiClonePointer(),
@@ -3654,6 +4655,9 @@ open func markUsed(keychain: KeychainKind, index: UInt32) -> Bool {
 })
 }
     
+    /**
+     * Get the Bitcoin network the wallet is using.
+     */
 open func network() -> Network {
     return try!  FfiConverterTypeNetwork_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_network(self.uniffiClonePointer(),$0
@@ -3661,6 +4665,9 @@ open func network() -> Network {
 })
 }
     
+    /**
+     * The index of the next address that you would get if you were to ask the wallet for a new address
+     */
 open func nextDerivationIndex(keychain: KeychainKind) -> UInt32 {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_next_derivation_index(self.uniffiClonePointer(),
@@ -3669,6 +4676,16 @@ open func nextDerivationIndex(keychain: KeychainKind) -> UInt32 {
 })
 }
     
+    /**
+     * Get the next unused address for the given `keychain`, i.e. the address with the lowest
+     * derivation index that hasn't been used.
+     *
+     * This will attempt to derive and reveal a new address if no newly revealed addresses
+     * are available. See also [`reveal_next_address`](Self::reveal_next_address).
+     *
+     * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
+     * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
+     */
 open func nextUnusedAddress(keychain: KeychainKind) -> AddressInfo {
     return try!  FfiConverterTypeAddressInfo.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_next_unused_address(self.uniffiClonePointer(),
@@ -3677,6 +4694,16 @@ open func nextUnusedAddress(keychain: KeychainKind) -> AddressInfo {
 })
 }
     
+    /**
+     * Peek an address of the given `keychain` at `index` without revealing it.
+     *
+     * For non-wildcard descriptors this returns the same address at every provided index.
+     *
+     * # Panics
+     *
+     * This panics when the caller requests for an address of derivation index greater than the
+     * [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki) max index.
+     */
 open func peekAddress(keychain: KeychainKind, index: UInt32) -> AddressInfo {
     return try!  FfiConverterTypeAddressInfo.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_peek_address(self.uniffiClonePointer(),
@@ -3694,6 +4721,25 @@ open func persist(connection: Connection)throws  -> Bool {
 })
 }
     
+open func policies(keychain: KeychainKind)throws  -> Policy? {
+    return try  FfiConverterOptionTypePolicy.lift(try rustCallWithError(FfiConverterTypeDescriptorError.lift) {
+    uniffi_bdkffi_fn_method_wallet_policies(self.uniffiClonePointer(),
+        FfiConverterTypeKeychainKind.lower(keychain),$0
+    )
+})
+}
+    
+    /**
+     * Reveal addresses up to and including the target `index` and return an iterator
+     * of newly revealed addresses.
+     *
+     * If the target `index` is unreachable, we make a best effort to reveal up to the last
+     * possible index. If all addresses up to the given `index` are already revealed, then
+     * no new addresses are returned.
+     *
+     * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
+     * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
+     */
 open func revealAddressesTo(keychain: KeychainKind, index: UInt32) -> [AddressInfo] {
     return try!  FfiConverterSequenceTypeAddressInfo.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_reveal_addresses_to(self.uniffiClonePointer(),
@@ -3703,6 +4749,14 @@ open func revealAddressesTo(keychain: KeychainKind, index: UInt32) -> [AddressIn
 })
 }
     
+    /**
+     * Attempt to reveal the next address of the given `keychain`.
+     *
+     * This will increment the keychain's derivation index. If the keychain's descriptor doesn't
+     * contain a wildcard or every address is already revealed up to the maximum derivation
+     * index defined in [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki),
+     * then the last revealed address will be returned.
+     */
 open func revealNextAddress(keychain: KeychainKind) -> AddressInfo {
     return try!  FfiConverterTypeAddressInfo.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_reveal_next_address(self.uniffiClonePointer(),
@@ -3711,6 +4765,13 @@ open func revealNextAddress(keychain: KeychainKind) -> AddressInfo {
 })
 }
     
+    /**
+     * Compute the `tx`'s sent and received [`Amount`]s.
+     *
+     * This method returns a tuple `(sent, received)`. Sent is the sum of the txin amounts
+     * that spend from previous txouts tracked by this wallet. Received is the summation
+     * of this tx's outputs that send to script pubkeys tracked by this wallet.
+     */
 open func sentAndReceived(tx: Transaction) -> SentAndReceivedValues {
     return try!  FfiConverterTypeSentAndReceivedValues.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_sent_and_received(self.uniffiClonePointer(),
@@ -3719,6 +4780,15 @@ open func sentAndReceived(tx: Transaction) -> SentAndReceivedValues {
 })
 }
     
+    /**
+     * Sign a transaction with all the wallet's signers, in the order specified by every signer's
+     * [`SignerOrdering`]. This function returns the `Result` type with an encapsulated `bool` that has the value true if the PSBT was finalized, or false otherwise.
+     *
+     * The [`SignOptions`] can be used to tweak the behavior of the software signers, and the way
+     * the transaction is finalized at the end. Note that it can't be guaranteed that *every*
+     * signers will follow the options, but the "software signers" (WIF keys and `xprv`) defined
+     * in this library will.
+     */
 open func sign(psbt: Psbt)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSignerError.lift) {
     uniffi_bdkffi_fn_method_wallet_sign(self.uniffiClonePointer(),
@@ -3727,6 +4797,16 @@ open func sign(psbt: Psbt)throws  -> Bool {
 })
 }
     
+    /**
+     * Create a [`FullScanRequest] for this wallet.
+     *
+     * This is the first step when performing a spk-based wallet full scan, the returned
+     * [`FullScanRequest] collects iterators for the wallet's keychain script pub keys needed to
+     * start a blockchain full scan with a spk based blockchain client.
+     *
+     * This operation is generally only used when importing or restoring a previously used wallet
+     * in which the list of used scripts is not known.
+     */
 open func startFullScan() -> FullScanRequestBuilder {
     return try!  FfiConverterTypeFullScanRequestBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_start_full_scan(self.uniffiClonePointer(),$0
@@ -3734,6 +4814,13 @@ open func startFullScan() -> FullScanRequestBuilder {
 })
 }
     
+    /**
+     * Create a partial [`SyncRequest`] for this wallet for all revealed spks.
+     *
+     * This is the first step when performing a spk-based wallet partial sync, the returned
+     * [`SyncRequest`] collects all revealed script pubkeys from the wallet keychain needed to
+     * start a blockchain sync with a spk based blockchain client.
+     */
 open func startSyncWithRevealedSpks() -> SyncRequestBuilder {
     return try!  FfiConverterTypeSyncRequestBuilder.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_start_sync_with_revealed_spks(self.uniffiClonePointer(),$0
@@ -3741,6 +4828,9 @@ open func startSyncWithRevealedSpks() -> SyncRequestBuilder {
 })
 }
     
+    /**
+     * Iterate over the transactions in the wallet.
+     */
 open func transactions() -> [CanonicalTx] {
     return try!  FfiConverterSequenceTypeCanonicalTx.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_transactions(self.uniffiClonePointer(),$0
@@ -3794,14 +4884,35 @@ public func FfiConverterTypeWallet_lower(_ value: Wallet) -> UnsafeMutableRawPoi
 }
 
 
+/**
+ * A derived address and the index it was found at.
+ */
 public struct AddressInfo {
+    /**
+     * Child index of this address
+     */
     public var index: UInt32
+    /**
+     * Address
+     */
     public var address: Address
+    /**
+     * Type of keychain
+     */
     public var keychain: KeychainKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(index: UInt32, address: Address, keychain: KeychainKind) {
+    public init(
+        /**
+         * Child index of this address
+         */index: UInt32, 
+        /**
+         * Address
+         */address: Address, 
+        /**
+         * Type of keychain
+         */keychain: KeychainKind) {
         self.index = index
         self.address = address
         self.keychain = keychain
@@ -3837,17 +4948,62 @@ public func FfiConverterTypeAddressInfo_lower(_ value: AddressInfo) -> RustBuffe
 }
 
 
+/**
+ * Balance, differentiated into various categories.
+ */
 public struct Balance {
+    /**
+     * All coinbase outputs not yet matured
+     */
     public var immature: Amount
+    /**
+     * Unconfirmed UTXOs generated by a wallet tx
+     */
     public var trustedPending: Amount
+    /**
+     * Unconfirmed UTXOs received from an external wallet
+     */
     public var untrustedPending: Amount
+    /**
+     * Confirmed and immediately spendable balance
+     */
     public var confirmed: Amount
+    /**
+     * Get sum of trusted_pending and confirmed coins.
+     *
+     * This is the balance you can spend right now that shouldn't get cancelled via another party
+     * double spending it.
+     */
     public var trustedSpendable: Amount
+    /**
+     * Get the whole balance visible to the wallet.
+     */
     public var total: Amount
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(immature: Amount, trustedPending: Amount, untrustedPending: Amount, confirmed: Amount, trustedSpendable: Amount, total: Amount) {
+    public init(
+        /**
+         * All coinbase outputs not yet matured
+         */immature: Amount, 
+        /**
+         * Unconfirmed UTXOs generated by a wallet tx
+         */trustedPending: Amount, 
+        /**
+         * Unconfirmed UTXOs received from an external wallet
+         */untrustedPending: Amount, 
+        /**
+         * Confirmed and immediately spendable balance
+         */confirmed: Amount, 
+        /**
+         * Get sum of trusted_pending and confirmed coins.
+         *
+         * This is the balance you can spend right now that shouldn't get cancelled via another party
+         * double spending it.
+         */trustedSpendable: Amount, 
+        /**
+         * Get the whole balance visible to the wallet.
+         */total: Amount) {
         self.immature = immature
         self.trustedPending = trustedPending
         self.untrustedPending = untrustedPending
@@ -3988,6 +5144,63 @@ public func FfiConverterTypeCanonicalTx_lower(_ value: CanonicalTx) -> RustBuffe
 }
 
 
+public struct Condition {
+    public var csv: UInt32?
+    public var timelock: LockTime?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(csv: UInt32?, timelock: LockTime?) {
+        self.csv = csv
+        self.timelock = timelock
+    }
+}
+
+
+
+extension Condition: Equatable, Hashable {
+    public static func ==(lhs: Condition, rhs: Condition) -> Bool {
+        if lhs.csv != rhs.csv {
+            return false
+        }
+        if lhs.timelock != rhs.timelock {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(csv)
+        hasher.combine(timelock)
+    }
+}
+
+
+public struct FfiConverterTypeCondition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Condition {
+        return
+            try Condition(
+                csv: FfiConverterOptionUInt32.read(from: &buf), 
+                timelock: FfiConverterOptionTypeLockTime.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Condition, into buf: inout [UInt8]) {
+        FfiConverterOptionUInt32.write(value.csv, into: &buf)
+        FfiConverterOptionTypeLockTime.write(value.timelock, into: &buf)
+    }
+}
+
+
+public func FfiConverterTypeCondition_lift(_ buf: RustBuffer) throws -> Condition {
+    return try FfiConverterTypeCondition.lift(buf)
+}
+
+public func FfiConverterTypeCondition_lower(_ value: Condition) -> RustBuffer {
+    return FfiConverterTypeCondition.lower(value)
+}
+
+
 public struct ConfirmationBlockTime {
     public var blockId: BlockId
     public var confirmationTime: UInt64
@@ -4042,6 +5255,49 @@ public func FfiConverterTypeConfirmationBlockTime_lift(_ buf: RustBuffer) throws
 
 public func FfiConverterTypeConfirmationBlockTime_lower(_ value: ConfirmationBlockTime) -> RustBuffer {
     return FfiConverterTypeConfirmationBlockTime.lower(value)
+}
+
+
+public struct FinalizedPsbtResult {
+    public var psbt: Psbt
+    public var couldFinalize: Bool
+    public var errors: [PsbtFinalizeError]?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(psbt: Psbt, couldFinalize: Bool, errors: [PsbtFinalizeError]?) {
+        self.psbt = psbt
+        self.couldFinalize = couldFinalize
+        self.errors = errors
+    }
+}
+
+
+
+public struct FfiConverterTypeFinalizedPsbtResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FinalizedPsbtResult {
+        return
+            try FinalizedPsbtResult(
+                psbt: FfiConverterTypePsbt.read(from: &buf), 
+                couldFinalize: FfiConverterBool.read(from: &buf), 
+                errors: FfiConverterOptionSequenceTypePsbtFinalizeError.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FinalizedPsbtResult, into buf: inout [UInt8]) {
+        FfiConverterTypePsbt.write(value.psbt, into: &buf)
+        FfiConverterBool.write(value.couldFinalize, into: &buf)
+        FfiConverterOptionSequenceTypePsbtFinalizeError.write(value.errors, into: &buf)
+    }
+}
+
+
+public func FfiConverterTypeFinalizedPsbtResult_lift(_ buf: RustBuffer) throws -> FinalizedPsbtResult {
+    return try FfiConverterTypeFinalizedPsbtResult.lift(buf)
+}
+
+public func FfiConverterTypeFinalizedPsbtResult_lower(_ value: FinalizedPsbtResult) -> RustBuffer {
+    return FfiConverterTypeFinalizedPsbtResult.lower(value)
 }
 
 
@@ -4102,15 +5358,42 @@ public func FfiConverterTypeKeychainAndIndex_lower(_ value: KeychainAndIndex) ->
 }
 
 
+/**
+ * An unspent output owned by a [`Wallet`].
+ */
 public struct LocalOutput {
+    /**
+     * Reference to a transaction output
+     */
     public var outpoint: OutPoint
+    /**
+     * Transaction output
+     */
     public var txout: TxOut
+    /**
+     * Type of keychain
+     */
     public var keychain: KeychainKind
+    /**
+     * Whether this UTXO is spent or not
+     */
     public var isSpent: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(outpoint: OutPoint, txout: TxOut, keychain: KeychainKind, isSpent: Bool) {
+    public init(
+        /**
+         * Reference to a transaction output
+         */outpoint: OutPoint, 
+        /**
+         * Transaction output
+         */txout: TxOut, 
+        /**
+         * Type of keychain
+         */keychain: KeychainKind, 
+        /**
+         * Whether this UTXO is spent or not
+         */isSpent: Bool) {
         self.outpoint = outpoint
         self.txout = txout
         self.keychain = keychain
@@ -4274,13 +5557,34 @@ public func FfiConverterTypeTxIn_lower(_ value: TxIn) -> RustBuffer {
 }
 
 
+/**
+ * Bitcoin transaction output.
+ *
+ * Defines new coins to be created as a result of the transaction,
+ * along with spending conditions ("script", aka "output script"),
+ * which an input spending it must satisfy.
+ *
+ * An output that is not yet spent by an input is called Unspent Transaction Output ("UTXO").
+ */
 public struct TxOut {
+    /**
+     * The value of the output, in satoshis.
+     */
     public var value: UInt64
+    /**
+     * The script which must be satisfied for the output to be spent.
+     */
     public var scriptPubkey: Script
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(value: UInt64, scriptPubkey: Script) {
+    public init(
+        /**
+         * The value of the output, in satoshis.
+         */value: UInt64, 
+        /**
+         * The script which must be satisfied for the output to be spent.
+         */scriptPubkey: Script) {
         self.value = value
         self.scriptPubkey = scriptPubkey
     }
@@ -4766,12 +6070,21 @@ extension CannotConnectError: Foundation.LocalizedError {
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Represents the observed position of some chain data.
+ */
 
 public enum ChainPosition {
     
-    case confirmed(confirmationBlockTime: ConfirmationBlockTime
+    /**
+     * The chain data is confirmed as it is anchored in the best chain by `A`.
+     */
+    case confirmed(confirmationBlockTime: ConfirmationBlockTime, transitively: String?
     )
-    case unconfirmed(timestamp: UInt64
+    /**
+     * The chain data is not confirmed and last seen in the mempool at this timestamp.
+     */
+    case unconfirmed(timestamp: UInt64?
     )
 }
 
@@ -4783,10 +6096,10 @@ public struct FfiConverterTypeChainPosition: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .confirmed(confirmationBlockTime: try FfiConverterTypeConfirmationBlockTime.read(from: &buf)
+        case 1: return .confirmed(confirmationBlockTime: try FfiConverterTypeConfirmationBlockTime.read(from: &buf), transitively: try FfiConverterOptionString.read(from: &buf)
         )
         
-        case 2: return .unconfirmed(timestamp: try FfiConverterUInt64.read(from: &buf)
+        case 2: return .unconfirmed(timestamp: try FfiConverterOptionUInt64.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -4797,14 +6110,15 @@ public struct FfiConverterTypeChainPosition: FfiConverterRustBuffer {
         switch value {
         
         
-        case let .confirmed(confirmationBlockTime):
+        case let .confirmed(confirmationBlockTime,transitively):
             writeInt(&buf, Int32(1))
             FfiConverterTypeConfirmationBlockTime.write(confirmationBlockTime, into: &buf)
+            FfiConverterOptionString.write(transitively, into: &buf)
             
         
         case let .unconfirmed(timestamp):
             writeInt(&buf, Int32(2))
-            FfiConverterUInt64.write(timestamp, into: &buf)
+            FfiConverterOptionUInt64.write(timestamp, into: &buf)
             
         }
     }
@@ -4827,11 +6141,23 @@ extension ChainPosition: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Policy regarding the use of change outputs when creating a transaction
+ */
 
 public enum ChangeSpendPolicy {
     
+    /**
+     * Use both change and non-change outputs (default)
+     */
     case changeAllowed
+    /**
+     * Only use change outputs (see [`TxBuilder::only_spend_change`])
+     */
     case onlyChange
+    /**
+     * Only use non-change outputs
+     */
     case changeForbidden
 }
 
@@ -4927,6 +6253,8 @@ public enum CreateTxError {
     )
     case MiniscriptPsbt(errorMessage: String
     )
+    case PushBytesError
+    case LockTimeConversionError
 }
 
 
@@ -4993,6 +6321,8 @@ public struct FfiConverterTypeCreateTxError: FfiConverterRustBuffer {
         case 20: return .MiniscriptPsbt(
             errorMessage: try FfiConverterString.read(from: &buf)
             )
+        case 21: return .PushBytesError
+        case 22: return .LockTimeConversionError
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -5102,6 +6432,14 @@ public struct FfiConverterTypeCreateTxError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(20))
             FfiConverterString.write(errorMessage, into: &buf)
             
+        
+        case .PushBytesError:
+            writeInt(&buf, Int32(21))
+        
+        
+        case .LockTimeConversionError:
+            writeInt(&buf, Int32(22))
+        
         }
     }
 }
@@ -5615,6 +6953,7 @@ public enum EsploraError {
     case InvalidHttpHeaderValue(value: String
     )
     case RequestAlreadyConsumed
+    case InvalidResponse
 }
 
 
@@ -5662,6 +7001,7 @@ public struct FfiConverterTypeEsploraError: FfiConverterRustBuffer {
             value: try FfiConverterString.read(from: &buf)
             )
         case 13: return .RequestAlreadyConsumed
+        case 14: return .InvalidResponse
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -5735,6 +7075,10 @@ public struct FfiConverterTypeEsploraError: FfiConverterRustBuffer {
         
         case .RequestAlreadyConsumed:
             writeInt(&buf, Int32(13))
+        
+        
+        case .InvalidResponse:
+            writeInt(&buf, Int32(14))
         
         }
     }
@@ -5895,10 +7239,19 @@ extension FromScriptError: Foundation.LocalizedError {
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Types of keychains
+ */
 
 public enum KeychainKind {
     
+    /**
+     * External keychain, used for deriving recipient addresses.
+     */
     case external
+    /**
+     * Internal keychain, used for deriving change addresses.
+     */
     case `internal`
 }
 
@@ -6016,6 +7369,407 @@ extension LoadWithPersistError: Foundation.LocalizedError {
     }
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum LockTime {
+    
+    case blocks(height: UInt32
+    )
+    case seconds(consensusTime: UInt32
+    )
+}
+
+
+public struct FfiConverterTypeLockTime: FfiConverterRustBuffer {
+    typealias SwiftType = LockTime
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LockTime {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .blocks(height: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .seconds(consensusTime: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LockTime, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .blocks(height):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(height, into: &buf)
+            
+        
+        case let .seconds(consensusTime):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(consensusTime, into: &buf)
+            
+        }
+    }
+}
+
+
+public func FfiConverterTypeLockTime_lift(_ buf: RustBuffer) throws -> LockTime {
+    return try FfiConverterTypeLockTime.lift(buf)
+}
+
+public func FfiConverterTypeLockTime_lower(_ value: LockTime) -> RustBuffer {
+    return FfiConverterTypeLockTime.lower(value)
+}
+
+
+
+extension LockTime: Equatable, Hashable {}
+
+
+
+
+public enum MiniscriptError {
+
+    
+    
+    case AbsoluteLockTime
+    case AddrError(errorMessage: String
+    )
+    case AddrP2shError(errorMessage: String
+    )
+    case AnalysisError(errorMessage: String
+    )
+    case AtOutsideOr
+    case BadDescriptor(errorMessage: String
+    )
+    case BareDescriptorAddr
+    case CmsTooManyKeys(keys: UInt32
+    )
+    case ContextError(errorMessage: String
+    )
+    case CouldNotSatisfy
+    case ExpectedChar(char: String
+    )
+    case ImpossibleSatisfaction
+    case InvalidOpcode
+    case InvalidPush
+    case LiftError(errorMessage: String
+    )
+    case MaxRecursiveDepthExceeded
+    case MissingSig
+    case MultiATooManyKeys(keys: UInt64
+    )
+    case MultiColon
+    case MultipathDescLenMismatch
+    case NonMinimalVerify(errorMessage: String
+    )
+    case NonStandardBareScript
+    case NonTopLevel(errorMessage: String
+    )
+    case ParseThreshold
+    case PolicyError(errorMessage: String
+    )
+    case PubKeyCtxError
+    case RelativeLockTime
+    case Script(errorMessage: String
+    )
+    case Secp(errorMessage: String
+    )
+    case Threshold
+    case TrNoScriptCode
+    case Trailing(errorMessage: String
+    )
+    case TypeCheck(errorMessage: String
+    )
+    case Unexpected(errorMessage: String
+    )
+    case UnexpectedStart
+    case UnknownWrapper(char: String
+    )
+    case Unprintable(byte: UInt8
+    )
+}
+
+
+public struct FfiConverterTypeMiniscriptError: FfiConverterRustBuffer {
+    typealias SwiftType = MiniscriptError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MiniscriptError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .AbsoluteLockTime
+        case 2: return .AddrError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .AddrP2shError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .AnalysisError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 5: return .AtOutsideOr
+        case 6: return .BadDescriptor(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 7: return .BareDescriptorAddr
+        case 8: return .CmsTooManyKeys(
+            keys: try FfiConverterUInt32.read(from: &buf)
+            )
+        case 9: return .ContextError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 10: return .CouldNotSatisfy
+        case 11: return .ExpectedChar(
+            char: try FfiConverterString.read(from: &buf)
+            )
+        case 12: return .ImpossibleSatisfaction
+        case 13: return .InvalidOpcode
+        case 14: return .InvalidPush
+        case 15: return .LiftError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 16: return .MaxRecursiveDepthExceeded
+        case 17: return .MissingSig
+        case 18: return .MultiATooManyKeys(
+            keys: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 19: return .MultiColon
+        case 20: return .MultipathDescLenMismatch
+        case 21: return .NonMinimalVerify(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 22: return .NonStandardBareScript
+        case 23: return .NonTopLevel(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 24: return .ParseThreshold
+        case 25: return .PolicyError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 26: return .PubKeyCtxError
+        case 27: return .RelativeLockTime
+        case 28: return .Script(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 29: return .Secp(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 30: return .Threshold
+        case 31: return .TrNoScriptCode
+        case 32: return .Trailing(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 33: return .TypeCheck(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 34: return .Unexpected(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 35: return .UnexpectedStart
+        case 36: return .UnknownWrapper(
+            char: try FfiConverterString.read(from: &buf)
+            )
+        case 37: return .Unprintable(
+            byte: try FfiConverterUInt8.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MiniscriptError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .AbsoluteLockTime:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .AddrError(errorMessage):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .AddrP2shError(errorMessage):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .AnalysisError(errorMessage):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .AtOutsideOr:
+            writeInt(&buf, Int32(5))
+        
+        
+        case let .BadDescriptor(errorMessage):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .BareDescriptorAddr:
+            writeInt(&buf, Int32(7))
+        
+        
+        case let .CmsTooManyKeys(keys):
+            writeInt(&buf, Int32(8))
+            FfiConverterUInt32.write(keys, into: &buf)
+            
+        
+        case let .ContextError(errorMessage):
+            writeInt(&buf, Int32(9))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .CouldNotSatisfy:
+            writeInt(&buf, Int32(10))
+        
+        
+        case let .ExpectedChar(char):
+            writeInt(&buf, Int32(11))
+            FfiConverterString.write(char, into: &buf)
+            
+        
+        case .ImpossibleSatisfaction:
+            writeInt(&buf, Int32(12))
+        
+        
+        case .InvalidOpcode:
+            writeInt(&buf, Int32(13))
+        
+        
+        case .InvalidPush:
+            writeInt(&buf, Int32(14))
+        
+        
+        case let .LiftError(errorMessage):
+            writeInt(&buf, Int32(15))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .MaxRecursiveDepthExceeded:
+            writeInt(&buf, Int32(16))
+        
+        
+        case .MissingSig:
+            writeInt(&buf, Int32(17))
+        
+        
+        case let .MultiATooManyKeys(keys):
+            writeInt(&buf, Int32(18))
+            FfiConverterUInt64.write(keys, into: &buf)
+            
+        
+        case .MultiColon:
+            writeInt(&buf, Int32(19))
+        
+        
+        case .MultipathDescLenMismatch:
+            writeInt(&buf, Int32(20))
+        
+        
+        case let .NonMinimalVerify(errorMessage):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .NonStandardBareScript:
+            writeInt(&buf, Int32(22))
+        
+        
+        case let .NonTopLevel(errorMessage):
+            writeInt(&buf, Int32(23))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .ParseThreshold:
+            writeInt(&buf, Int32(24))
+        
+        
+        case let .PolicyError(errorMessage):
+            writeInt(&buf, Int32(25))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .PubKeyCtxError:
+            writeInt(&buf, Int32(26))
+        
+        
+        case .RelativeLockTime:
+            writeInt(&buf, Int32(27))
+        
+        
+        case let .Script(errorMessage):
+            writeInt(&buf, Int32(28))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .Secp(errorMessage):
+            writeInt(&buf, Int32(29))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .Threshold:
+            writeInt(&buf, Int32(30))
+        
+        
+        case .TrNoScriptCode:
+            writeInt(&buf, Int32(31))
+        
+        
+        case let .Trailing(errorMessage):
+            writeInt(&buf, Int32(32))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .TypeCheck(errorMessage):
+            writeInt(&buf, Int32(33))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .Unexpected(errorMessage):
+            writeInt(&buf, Int32(34))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .UnexpectedStart:
+            writeInt(&buf, Int32(35))
+        
+        
+        case let .UnknownWrapper(char):
+            writeInt(&buf, Int32(36))
+            FfiConverterString.write(char, into: &buf)
+            
+        
+        case let .Unprintable(byte):
+            writeInt(&buf, Int32(37))
+            FfiConverterUInt8.write(byte, into: &buf)
+            
+        }
+    }
+}
+
+
+extension MiniscriptError: Equatable, Hashable {}
+
+extension MiniscriptError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
 
 public enum PersistenceError {
 
@@ -6067,6 +7821,77 @@ extension PersistenceError: Foundation.LocalizedError {
         String(reflecting: self)
     }
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum PkOrF {
+    
+    case pubkey(value: String
+    )
+    case xOnlyPubkey(value: String
+    )
+    case fingerprint(value: String
+    )
+}
+
+
+public struct FfiConverterTypePkOrF: FfiConverterRustBuffer {
+    typealias SwiftType = PkOrF
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PkOrF {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .pubkey(value: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .xOnlyPubkey(value: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .fingerprint(value: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PkOrF, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .pubkey(value):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(value, into: &buf)
+            
+        
+        case let .xOnlyPubkey(value):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(value, into: &buf)
+            
+        
+        case let .fingerprint(value):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(value, into: &buf)
+            
+        }
+    }
+}
+
+
+public func FfiConverterTypePkOrF_lift(_ buf: RustBuffer) throws -> PkOrF {
+    return try FfiConverterTypePkOrF.lift(buf)
+}
+
+public func FfiConverterTypePkOrF_lower(_ value: PkOrF) -> RustBuffer {
+    return FfiConverterTypePkOrF.lower(value)
+}
+
+
+
+extension PkOrF: Equatable, Hashable {}
+
+
 
 
 public enum PsbtError {
@@ -6361,6 +8186,84 @@ extension PsbtError: Foundation.LocalizedError {
 }
 
 
+public enum PsbtFinalizeError {
+
+    
+    
+    case InputError(reason: String, index: UInt32
+    )
+    case WrongInputCount(inTx: UInt32, inMap: UInt32
+    )
+    case InputIdxOutofBounds(psbtInp: UInt32, requested: UInt32
+    )
+}
+
+
+public struct FfiConverterTypePsbtFinalizeError: FfiConverterRustBuffer {
+    typealias SwiftType = PsbtFinalizeError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PsbtFinalizeError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InputError(
+            reason: try FfiConverterString.read(from: &buf), 
+            index: try FfiConverterUInt32.read(from: &buf)
+            )
+        case 2: return .WrongInputCount(
+            inTx: try FfiConverterUInt32.read(from: &buf), 
+            inMap: try FfiConverterUInt32.read(from: &buf)
+            )
+        case 3: return .InputIdxOutofBounds(
+            psbtInp: try FfiConverterUInt32.read(from: &buf), 
+            requested: try FfiConverterUInt32.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PsbtFinalizeError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .InputError(reason,index):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(reason, into: &buf)
+            FfiConverterUInt32.write(index, into: &buf)
+            
+        
+        case let .WrongInputCount(inTx,inMap):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(inTx, into: &buf)
+            FfiConverterUInt32.write(inMap, into: &buf)
+            
+        
+        case let .InputIdxOutofBounds(psbtInp,requested):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt32.write(psbtInp, into: &buf)
+            FfiConverterUInt32.write(requested, into: &buf)
+            
+        }
+    }
+}
+
+
+extension PsbtFinalizeError: Equatable, Hashable {}
+
+extension PsbtFinalizeError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
 public enum PsbtParseError {
 
     
@@ -6469,6 +8372,235 @@ extension RequestBuilderError: Foundation.LocalizedError {
         String(reflecting: self)
     }
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum Satisfaction {
+    
+    case partial(n: UInt64, m: UInt64, items: [UInt64], sorted: Bool?, conditions: [UInt32: [Condition]]
+    )
+    case partialComplete(n: UInt64, m: UInt64, items: [UInt64], sorted: Bool?, conditions: [[UInt32]: [Condition]]
+    )
+    case complete(condition: Condition
+    )
+    case none(msg: String
+    )
+}
+
+
+public struct FfiConverterTypeSatisfaction: FfiConverterRustBuffer {
+    typealias SwiftType = Satisfaction
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Satisfaction {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .partial(n: try FfiConverterUInt64.read(from: &buf), m: try FfiConverterUInt64.read(from: &buf), items: try FfiConverterSequenceUInt64.read(from: &buf), sorted: try FfiConverterOptionBool.read(from: &buf), conditions: try FfiConverterDictionaryUInt32SequenceTypeCondition.read(from: &buf)
+        )
+        
+        case 2: return .partialComplete(n: try FfiConverterUInt64.read(from: &buf), m: try FfiConverterUInt64.read(from: &buf), items: try FfiConverterSequenceUInt64.read(from: &buf), sorted: try FfiConverterOptionBool.read(from: &buf), conditions: try FfiConverterDictionarySequenceUInt32SequenceTypeCondition.read(from: &buf)
+        )
+        
+        case 3: return .complete(condition: try FfiConverterTypeCondition.read(from: &buf)
+        )
+        
+        case 4: return .none(msg: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: Satisfaction, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .partial(n,m,items,sorted,conditions):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(n, into: &buf)
+            FfiConverterUInt64.write(m, into: &buf)
+            FfiConverterSequenceUInt64.write(items, into: &buf)
+            FfiConverterOptionBool.write(sorted, into: &buf)
+            FfiConverterDictionaryUInt32SequenceTypeCondition.write(conditions, into: &buf)
+            
+        
+        case let .partialComplete(n,m,items,sorted,conditions):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt64.write(n, into: &buf)
+            FfiConverterUInt64.write(m, into: &buf)
+            FfiConverterSequenceUInt64.write(items, into: &buf)
+            FfiConverterOptionBool.write(sorted, into: &buf)
+            FfiConverterDictionarySequenceUInt32SequenceTypeCondition.write(conditions, into: &buf)
+            
+        
+        case let .complete(condition):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeCondition.write(condition, into: &buf)
+            
+        
+        case let .none(msg):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(msg, into: &buf)
+            
+        }
+    }
+}
+
+
+public func FfiConverterTypeSatisfaction_lift(_ buf: RustBuffer) throws -> Satisfaction {
+    return try FfiConverterTypeSatisfaction.lift(buf)
+}
+
+public func FfiConverterTypeSatisfaction_lower(_ value: Satisfaction) -> RustBuffer {
+    return FfiConverterTypeSatisfaction.lower(value)
+}
+
+
+
+extension Satisfaction: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum SatisfiableItem {
+    
+    case ecdsaSignature(key: PkOrF
+    )
+    case schnorrSignature(key: PkOrF
+    )
+    case sha256Preimage(hash: String
+    )
+    case hash256Preimage(hash: String
+    )
+    case ripemd160Preimage(hash: String
+    )
+    case hash160Preimage(hash: String
+    )
+    case absoluteTimelock(value: LockTime
+    )
+    case relativeTimelock(value: UInt32
+    )
+    case multisig(keys: [PkOrF], threshold: UInt64
+    )
+    case thresh(items: [Policy], threshold: UInt64
+    )
+}
+
+
+public struct FfiConverterTypeSatisfiableItem: FfiConverterRustBuffer {
+    typealias SwiftType = SatisfiableItem
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SatisfiableItem {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .ecdsaSignature(key: try FfiConverterTypePkOrF.read(from: &buf)
+        )
+        
+        case 2: return .schnorrSignature(key: try FfiConverterTypePkOrF.read(from: &buf)
+        )
+        
+        case 3: return .sha256Preimage(hash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .hash256Preimage(hash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 5: return .ripemd160Preimage(hash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 6: return .hash160Preimage(hash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 7: return .absoluteTimelock(value: try FfiConverterTypeLockTime.read(from: &buf)
+        )
+        
+        case 8: return .relativeTimelock(value: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 9: return .multisig(keys: try FfiConverterSequenceTypePkOrF.read(from: &buf), threshold: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 10: return .thresh(items: try FfiConverterSequenceTypePolicy.read(from: &buf), threshold: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SatisfiableItem, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .ecdsaSignature(key):
+            writeInt(&buf, Int32(1))
+            FfiConverterTypePkOrF.write(key, into: &buf)
+            
+        
+        case let .schnorrSignature(key):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypePkOrF.write(key, into: &buf)
+            
+        
+        case let .sha256Preimage(hash):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(hash, into: &buf)
+            
+        
+        case let .hash256Preimage(hash):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(hash, into: &buf)
+            
+        
+        case let .ripemd160Preimage(hash):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(hash, into: &buf)
+            
+        
+        case let .hash160Preimage(hash):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(hash, into: &buf)
+            
+        
+        case let .absoluteTimelock(value):
+            writeInt(&buf, Int32(7))
+            FfiConverterTypeLockTime.write(value, into: &buf)
+            
+        
+        case let .relativeTimelock(value):
+            writeInt(&buf, Int32(8))
+            FfiConverterUInt32.write(value, into: &buf)
+            
+        
+        case let .multisig(keys,threshold):
+            writeInt(&buf, Int32(9))
+            FfiConverterSequenceTypePkOrF.write(keys, into: &buf)
+            FfiConverterUInt64.write(threshold, into: &buf)
+            
+        
+        case let .thresh(items,threshold):
+            writeInt(&buf, Int32(10))
+            FfiConverterSequenceTypePolicy.write(items, into: &buf)
+            FfiConverterUInt64.write(threshold, into: &buf)
+            
+        }
+    }
+}
+
+
+public func FfiConverterTypeSatisfiableItem_lift(_ buf: RustBuffer) throws -> SatisfiableItem {
+    return try FfiConverterTypeSatisfiableItem.lift(buf)
+}
+
+public func FfiConverterTypeSatisfiableItem_lower(_ value: SatisfiableItem) -> RustBuffer {
+    return FfiConverterTypeSatisfiableItem.lower(value)
+}
+
+
+
 
 
 public enum SignerError {
@@ -6933,6 +9065,48 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
+    typealias SwiftType = Bool?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterBool.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterBool.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -6949,6 +9123,27 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+fileprivate struct FfiConverterOptionTypePolicy: FfiConverterRustBuffer {
+    typealias SwiftType = Policy?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePolicy.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePolicy.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -7038,6 +9233,48 @@ fileprivate struct FfiConverterOptionTypeLocalOutput: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterOptionTypeLockTime: FfiConverterRustBuffer {
+    typealias SwiftType = LockTime?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLockTime.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLockTime.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+fileprivate struct FfiConverterOptionSequenceTypePsbtFinalizeError: FfiConverterRustBuffer {
+    typealias SwiftType = [PsbtFinalizeError]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceTypePsbtFinalizeError.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceTypePsbtFinalizeError.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 fileprivate struct FfiConverterSequenceUInt8: FfiConverterRustBuffer {
     typealias SwiftType = [UInt8]
 
@@ -7055,6 +9292,94 @@ fileprivate struct FfiConverterSequenceUInt8: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt8.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceTypeDescriptor: FfiConverterRustBuffer {
+    typealias SwiftType = [Descriptor]
+
+    public static func write(_ value: [Descriptor], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDescriptor.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Descriptor] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Descriptor]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDescriptor.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceTypePolicy: FfiConverterRustBuffer {
+    typealias SwiftType = [Policy]
+
+    public static func write(_ value: [Policy], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePolicy.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Policy] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Policy]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePolicy.read(from: &buf))
         }
         return seq
     }
@@ -7099,6 +9424,28 @@ fileprivate struct FfiConverterSequenceTypeCanonicalTx: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeCanonicalTx.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceTypeCondition: FfiConverterRustBuffer {
+    typealias SwiftType = [Condition]
+
+    public static func write(_ value: [Condition], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCondition.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Condition] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Condition]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCondition.read(from: &buf))
         }
         return seq
     }
@@ -7192,6 +9539,50 @@ fileprivate struct FfiConverterSequenceTypeTxOut: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterSequenceTypePkOrF: FfiConverterRustBuffer {
+    typealias SwiftType = [PkOrF]
+
+    public static func write(_ value: [PkOrF], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePkOrF.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PkOrF] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PkOrF]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePkOrF.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+fileprivate struct FfiConverterSequenceTypePsbtFinalizeError: FfiConverterRustBuffer {
+    typealias SwiftType = [PsbtFinalizeError]
+
+    public static func write(_ value: [PsbtFinalizeError], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePsbtFinalizeError.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PsbtFinalizeError] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PsbtFinalizeError]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePsbtFinalizeError.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 fileprivate struct FfiConverterSequenceSequenceUInt8: FfiConverterRustBuffer {
     typealias SwiftType = [[UInt8]]
 
@@ -7236,6 +9627,75 @@ fileprivate struct FfiConverterSequenceTypeOutPoint: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterDictionaryUInt32SequenceTypeCondition: FfiConverterRustBuffer {
+    public static func write(_ value: [UInt32: [Condition]], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterUInt32.write(key, into: &buf)
+            FfiConverterSequenceTypeCondition.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32: [Condition]] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [UInt32: [Condition]]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterUInt32.read(from: &buf)
+            let value = try FfiConverterSequenceTypeCondition.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+fileprivate struct FfiConverterDictionaryStringSequenceUInt64: FfiConverterRustBuffer {
+    public static func write(_ value: [String: [UInt64]], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterSequenceUInt64.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: [UInt64]] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: [UInt64]]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterSequenceUInt64.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+fileprivate struct FfiConverterDictionarySequenceUInt32SequenceTypeCondition: FfiConverterRustBuffer {
+    public static func write(_ value: [[UInt32]: [Condition]], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterSequenceUInt32.write(key, into: &buf)
+            FfiConverterSequenceTypeCondition.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [[UInt32]: [Condition]] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [[UInt32]: [Condition]]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterSequenceUInt32.read(from: &buf)
+            let value = try FfiConverterSequenceTypeCondition.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
 
 
 
@@ -7270,10 +9730,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_address_to_qr_uri() != 48141) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_allow_dust() != 17791) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_current_height() != 7420) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_finish() != 18299) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_nlocktime() != 11468) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_set_exact_sequence() != 35609) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_version() != 4756) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptor_is_multipath() != 3912) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptor_to_single_descriptors() != 33905) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptor_to_string_with_secret() != 18986) {
@@ -7286,6 +9764,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptorpublickey_extend() != 46128) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_is_multipath() != 45386) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_master_fingerprint() != 19753) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptorsecretkey_as_public() != 56954) {
@@ -7318,6 +9802,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_esploraclient_full_scan() != 30443) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_height() != 1218) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_esploraclient_get_tx() != 59770) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7333,6 +9820,24 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_fullscanscriptinspector_inspect() != 62348) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_policy_as_string() != 41785) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_policy_contribution() != 25625) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_policy_id() != 33085) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_policy_item() != 24039) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_policy_requires_path() != 40639) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_policy_satisfaction() != 28647) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_psbt_combine() != 42218) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7340,6 +9845,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_psbt_fee() != 48877) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_psbt_finalize() != 20182) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_psbt_json_serialize() != 9611) {
@@ -7393,6 +9901,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_transaction_weight() != 21879) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_data() != 7385) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_txbuilder_add_global_xpubs() != 61114) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7405,7 +9916,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_txbuilder_add_utxo() != 14001) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_txbuilder_allow_dust() != 14086) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_txbuilder_change_policy() != 22333) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_txbuilder_current_height() != 54586) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_txbuilder_do_not_spend_change() != 51770) {
@@ -7429,7 +9946,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_txbuilder_manually_selected_only() != 12623) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_txbuilder_nlocktime() != 34620) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_txbuilder_only_spend_change() != 18757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_txbuilder_policy_path() != 45435) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_txbuilder_set_exact_sequence() != 35105) {
@@ -7439,6 +9962,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_txbuilder_unspendable() != 49896) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_txbuilder_version() != 47401) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_apply_update() != 65428) {
@@ -7502,6 +10028,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_persist() != 14909) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_wallet_policies() != 23929) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_reveal_addresses_to() != 10653) {
