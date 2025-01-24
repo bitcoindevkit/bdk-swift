@@ -447,6 +447,32 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     }
 }
 
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -1783,16 +1809,71 @@ public func FfiConverterTypeDescriptorSecretKey_lower(_ value: DescriptorSecretK
 
 
 
+/**
+ * Wrapper around an electrum_client::ElectrumApi which includes an internal in-memory transaction
+ * cache to avoid re-fetching already downloaded transactions.
+ */
 public protocol ElectrumClientProtocol : AnyObject {
     
-    func broadcast(transaction: Transaction) throws  -> String
+    /**
+     * Estimates the fee required in bitcoin per kilobyte to confirm a transaction in `number` blocks.
+     */
+    func estimateFee(number: UInt64) throws  -> Double
     
-    func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, batchSize: UInt64, fetchPrevTxouts: Bool) throws  -> Update
+    /**
+     * Full scan the keychain scripts specified with the blockchain (via an Electrum client) and
+     * returns updates for bdk_chain data structures.
+     *
+     * - `request`: struct with data required to perform a spk-based blockchain client
+     *   full scan, see `FullScanRequest`.
+     * - `stop_gap`: the full scan for each keychain stops after a gap of script pubkeys with no
+     *   associated transactions.
+     * - `batch_size`: specifies the max number of script pubkeys to request for in a single batch
+     *   request.
+     * - `fetch_prev_txouts`: specifies whether we want previous `TxOuts` for fee calculation. Note
+     *   that this requires additional calls to the Electrum server, but is necessary for
+     *   calculating the fee on a transaction if your wallet does not own the inputs. Methods like
+     *   `Wallet.calculate_fee` and `Wallet.calculate_fee_rate` will return a
+     *   `CalculateFeeError::MissingTxOut` error if those TxOuts are not present in the transaction
+     *   graph.
+     */
+    func fullScan(request: FullScanRequest, stopGap: UInt64, batchSize: UInt64, fetchPrevTxouts: Bool) throws  -> Update
     
-    func sync(syncRequest: SyncRequest, batchSize: UInt64, fetchPrevTxouts: Bool) throws  -> Update
+    /**
+     * Returns the capabilities of the server.
+     */
+    func serverFeatures() throws  -> ServerFeaturesRes
+    
+    /**
+     * Sync a set of scripts with the blockchain (via an Electrum client) for the data specified and returns updates for bdk_chain data structures.
+     *
+     * - `request`: struct with data required to perform a spk-based blockchain client
+     *   sync, see `SyncRequest`.
+     * - `batch_size`: specifies the max number of script pubkeys to request for in a single batch
+     *   request.
+     * - `fetch_prev_txouts`: specifies whether we want previous `TxOuts` for fee calculation. Note
+     *   that this requires additional calls to the Electrum server, but is necessary for
+     *   calculating the fee on a transaction if your wallet does not own the inputs. Methods like
+     *   `Wallet.calculate_fee` and `Wallet.calculate_fee_rate` will return a
+     *   `CalculateFeeError::MissingTxOut` error if those TxOuts are not present in the transaction
+     *   graph.
+     *
+     * If the scripts to sync are unknown, such as when restoring or importing a keychain that may
+     * include scripts that have been used, use full_scan with the keychain.
+     */
+    func sync(request: SyncRequest, batchSize: UInt64, fetchPrevTxouts: Bool) throws  -> Update
+    
+    /**
+     * Broadcasts a transaction to the network.
+     */
+    func transactionBroadcast(tx: Transaction) throws  -> String
     
 }
 
+/**
+ * Wrapper around an electrum_client::ElectrumApi which includes an internal in-memory transaction
+ * cache to avoid re-fetching already downloaded transactions.
+ */
 open class ElectrumClient:
     ElectrumClientProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -1821,6 +1902,9 @@ open class ElectrumClient:
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_bdkffi_fn_clone_electrumclient(self.pointer, $0) }
     }
+    /**
+     * Creates a new bdk client from a electrum_client::ElectrumApi
+     */
 public convenience init(url: String)throws  {
     let pointer =
         try rustCallWithError(FfiConverterTypeElectrumError.lift) {
@@ -1842,18 +1926,38 @@ public convenience init(url: String)throws  {
     
 
     
-open func broadcast(transaction: Transaction)throws  -> String {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
-    uniffi_bdkffi_fn_method_electrumclient_broadcast(self.uniffiClonePointer(),
-        FfiConverterTypeTransaction.lower(transaction),$0
+    /**
+     * Estimates the fee required in bitcoin per kilobyte to confirm a transaction in `number` blocks.
+     */
+open func estimateFee(number: UInt64)throws  -> Double {
+    return try  FfiConverterDouble.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
+    uniffi_bdkffi_fn_method_electrumclient_estimate_fee(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(number),$0
     )
 })
 }
     
-open func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, batchSize: UInt64, fetchPrevTxouts: Bool)throws  -> Update {
+    /**
+     * Full scan the keychain scripts specified with the blockchain (via an Electrum client) and
+     * returns updates for bdk_chain data structures.
+     *
+     * - `request`: struct with data required to perform a spk-based blockchain client
+     *   full scan, see `FullScanRequest`.
+     * - `stop_gap`: the full scan for each keychain stops after a gap of script pubkeys with no
+     *   associated transactions.
+     * - `batch_size`: specifies the max number of script pubkeys to request for in a single batch
+     *   request.
+     * - `fetch_prev_txouts`: specifies whether we want previous `TxOuts` for fee calculation. Note
+     *   that this requires additional calls to the Electrum server, but is necessary for
+     *   calculating the fee on a transaction if your wallet does not own the inputs. Methods like
+     *   `Wallet.calculate_fee` and `Wallet.calculate_fee_rate` will return a
+     *   `CalculateFeeError::MissingTxOut` error if those TxOuts are not present in the transaction
+     *   graph.
+     */
+open func fullScan(request: FullScanRequest, stopGap: UInt64, batchSize: UInt64, fetchPrevTxouts: Bool)throws  -> Update {
     return try  FfiConverterTypeUpdate.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
     uniffi_bdkffi_fn_method_electrumclient_full_scan(self.uniffiClonePointer(),
-        FfiConverterTypeFullScanRequest.lower(fullScanRequest),
+        FfiConverterTypeFullScanRequest.lower(request),
         FfiConverterUInt64.lower(stopGap),
         FfiConverterUInt64.lower(batchSize),
         FfiConverterBool.lower(fetchPrevTxouts),$0
@@ -1861,12 +1965,50 @@ open func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, batchSize:
 })
 }
     
-open func sync(syncRequest: SyncRequest, batchSize: UInt64, fetchPrevTxouts: Bool)throws  -> Update {
+    /**
+     * Returns the capabilities of the server.
+     */
+open func serverFeatures()throws  -> ServerFeaturesRes {
+    return try  FfiConverterTypeServerFeaturesRes.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
+    uniffi_bdkffi_fn_method_electrumclient_server_features(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Sync a set of scripts with the blockchain (via an Electrum client) for the data specified and returns updates for bdk_chain data structures.
+     *
+     * - `request`: struct with data required to perform a spk-based blockchain client
+     *   sync, see `SyncRequest`.
+     * - `batch_size`: specifies the max number of script pubkeys to request for in a single batch
+     *   request.
+     * - `fetch_prev_txouts`: specifies whether we want previous `TxOuts` for fee calculation. Note
+     *   that this requires additional calls to the Electrum server, but is necessary for
+     *   calculating the fee on a transaction if your wallet does not own the inputs. Methods like
+     *   `Wallet.calculate_fee` and `Wallet.calculate_fee_rate` will return a
+     *   `CalculateFeeError::MissingTxOut` error if those TxOuts are not present in the transaction
+     *   graph.
+     *
+     * If the scripts to sync are unknown, such as when restoring or importing a keychain that may
+     * include scripts that have been used, use full_scan with the keychain.
+     */
+open func sync(request: SyncRequest, batchSize: UInt64, fetchPrevTxouts: Bool)throws  -> Update {
     return try  FfiConverterTypeUpdate.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
     uniffi_bdkffi_fn_method_electrumclient_sync(self.uniffiClonePointer(),
-        FfiConverterTypeSyncRequest.lower(syncRequest),
+        FfiConverterTypeSyncRequest.lower(request),
         FfiConverterUInt64.lower(batchSize),
         FfiConverterBool.lower(fetchPrevTxouts),$0
+    )
+})
+}
+    
+    /**
+     * Broadcasts a transaction to the network.
+     */
+open func transactionBroadcast(tx: Transaction)throws  -> String {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeElectrumError.lift) {
+    uniffi_bdkffi_fn_method_electrumclient_transaction_broadcast(self.uniffiClonePointer(),
+        FfiConverterTypeTransaction.lower(tx),$0
     )
 })
 }
@@ -1919,20 +2061,59 @@ public func FfiConverterTypeElectrumClient_lower(_ value: ElectrumClient) -> Uns
 
 
 
+/**
+ * Wrapper around an esplora_client::BlockingClient which includes an internal in-memory transaction
+ * cache to avoid re-fetching already downloaded transactions.
+ */
 public protocol EsploraClientProtocol : AnyObject {
     
+    /**
+     * Broadcast a [`Transaction`] to Esplora.
+     */
     func broadcast(transaction: Transaction) throws 
     
-    func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, parallelRequests: UInt64) throws  -> Update
+    /**
+     * Scan keychain scripts for transactions against Esplora, returning an update that can be
+     * applied to the receiving structures.
+     *
+     * `request` provides the data required to perform a script-pubkey-based full scan
+     * (see [`FullScanRequest`]). The full scan for each keychain (`K`) stops after a gap of
+     * `stop_gap` script pubkeys with no associated transactions. `parallel_requests` specifies
+     * the maximum number of HTTP requests to make in parallel.
+     */
+    func fullScan(request: FullScanRequest, stopGap: UInt64, parallelRequests: UInt64) throws  -> Update
     
+    /**
+     * Get a map where the key is the confirmation target (in number of
+     * blocks) and the value is the estimated feerate (in sat/vB).
+     */
+    func getFeeEstimates() throws  -> [UInt16: Double]
+    
+    /**
+     * Get the height of the current blockchain tip.
+     */
     func getHeight() throws  -> UInt32
     
+    /**
+     * Get a [`Transaction`] option given its [`Txid`].
+     */
     func getTx(txid: String) throws  -> Transaction?
     
-    func sync(syncRequest: SyncRequest, parallelRequests: UInt64) throws  -> Update
+    /**
+     * Sync a set of scripts, txids, and/or outpoints against Esplora.
+     *
+     * `request` provides the data required to perform a script-pubkey-based sync (see
+     * [`SyncRequest`]). `parallel_requests` specifies the maximum number of HTTP requests to make
+     * in parallel.
+     */
+    func sync(request: SyncRequest, parallelRequests: UInt64) throws  -> Update
     
 }
 
+/**
+ * Wrapper around an esplora_client::BlockingClient which includes an internal in-memory transaction
+ * cache to avoid re-fetching already downloaded transactions.
+ */
 open class EsploraClient:
     EsploraClientProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -1961,6 +2142,9 @@ open class EsploraClient:
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_bdkffi_fn_clone_esploraclient(self.pointer, $0) }
     }
+    /**
+     * Creates a new bdk client from a esplora_client::BlockingClient
+     */
 public convenience init(url: String) {
     let pointer =
         try! rustCall() {
@@ -1982,6 +2166,9 @@ public convenience init(url: String) {
     
 
     
+    /**
+     * Broadcast a [`Transaction`] to Esplora.
+     */
 open func broadcast(transaction: Transaction)throws  {try rustCallWithError(FfiConverterTypeEsploraError.lift) {
     uniffi_bdkffi_fn_method_esploraclient_broadcast(self.uniffiClonePointer(),
         FfiConverterTypeTransaction.lower(transaction),$0
@@ -1989,16 +2176,39 @@ open func broadcast(transaction: Transaction)throws  {try rustCallWithError(FfiC
 }
 }
     
-open func fullScan(fullScanRequest: FullScanRequest, stopGap: UInt64, parallelRequests: UInt64)throws  -> Update {
+    /**
+     * Scan keychain scripts for transactions against Esplora, returning an update that can be
+     * applied to the receiving structures.
+     *
+     * `request` provides the data required to perform a script-pubkey-based full scan
+     * (see [`FullScanRequest`]). The full scan for each keychain (`K`) stops after a gap of
+     * `stop_gap` script pubkeys with no associated transactions. `parallel_requests` specifies
+     * the maximum number of HTTP requests to make in parallel.
+     */
+open func fullScan(request: FullScanRequest, stopGap: UInt64, parallelRequests: UInt64)throws  -> Update {
     return try  FfiConverterTypeUpdate.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
     uniffi_bdkffi_fn_method_esploraclient_full_scan(self.uniffiClonePointer(),
-        FfiConverterTypeFullScanRequest.lower(fullScanRequest),
+        FfiConverterTypeFullScanRequest.lower(request),
         FfiConverterUInt64.lower(stopGap),
         FfiConverterUInt64.lower(parallelRequests),$0
     )
 })
 }
     
+    /**
+     * Get a map where the key is the confirmation target (in number of
+     * blocks) and the value is the estimated feerate (in sat/vB).
+     */
+open func getFeeEstimates()throws  -> [UInt16: Double] {
+    return try  FfiConverterDictionaryUInt16Double.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
+    uniffi_bdkffi_fn_method_esploraclient_get_fee_estimates(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Get the height of the current blockchain tip.
+     */
 open func getHeight()throws  -> UInt32 {
     return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
     uniffi_bdkffi_fn_method_esploraclient_get_height(self.uniffiClonePointer(),$0
@@ -2006,6 +2216,9 @@ open func getHeight()throws  -> UInt32 {
 })
 }
     
+    /**
+     * Get a [`Transaction`] option given its [`Txid`].
+     */
 open func getTx(txid: String)throws  -> Transaction? {
     return try  FfiConverterOptionTypeTransaction.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
     uniffi_bdkffi_fn_method_esploraclient_get_tx(self.uniffiClonePointer(),
@@ -2014,10 +2227,17 @@ open func getTx(txid: String)throws  -> Transaction? {
 })
 }
     
-open func sync(syncRequest: SyncRequest, parallelRequests: UInt64)throws  -> Update {
+    /**
+     * Sync a set of scripts, txids, and/or outpoints against Esplora.
+     *
+     * `request` provides the data required to perform a script-pubkey-based sync (see
+     * [`SyncRequest`]). `parallel_requests` specifies the maximum number of HTTP requests to make
+     * in parallel.
+     */
+open func sync(request: SyncRequest, parallelRequests: UInt64)throws  -> Update {
     return try  FfiConverterTypeUpdate.lift(try rustCallWithError(FfiConverterTypeEsploraError.lift) {
     uniffi_bdkffi_fn_method_esploraclient_sync(self.uniffiClonePointer(),
-        FfiConverterTypeSyncRequest.lower(syncRequest),
+        FfiConverterTypeSyncRequest.lower(request),
         FfiConverterUInt64.lower(parallelRequests),$0
     )
 })
@@ -4209,7 +4429,7 @@ public protocol WalletProtocol : AnyObject {
      *
      * The [`SignOptions`] can be used to tweak the behavior of the finalizer.
      */
-    func finalizePsbt(psbt: Psbt) throws  -> Bool
+    func finalizePsbt(psbt: Psbt, signOptions: SignOptions?) throws  -> Bool
     
     /**
      * Get a single transaction from the wallet as a [`WalletTx`] (if the transaction exists).
@@ -4275,10 +4495,10 @@ public protocol WalletProtocol : AnyObject {
     
     /**
      * Get the next unused address for the given `keychain`, i.e. the address with the lowest
-     * derivation index that hasn't been used.
+     * derivation index that hasn't been used in a transaction.
      *
-     * This will attempt to derive and reveal a new address if no newly revealed addresses
-     * are available. See also [`reveal_next_address`](Self::reveal_next_address).
+     * This will attempt to reveal a new address if all previously revealed addresses have
+     * been used, in which case the returned address will be the same as calling [`Wallet::reveal_next_address`].
      *
      * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
      * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
@@ -4342,7 +4562,7 @@ public protocol WalletProtocol : AnyObject {
      * signers will follow the options, but the "software signers" (WIF keys and `xprv`) defined
      * in this library will.
      */
-    func sign(psbt: Psbt) throws  -> Bool
+    func sign(psbt: Psbt, signOptions: SignOptions?) throws  -> Bool
     
     /**
      * Create a [`FullScanRequest] for this wallet.
@@ -4554,10 +4774,11 @@ open func descriptorChecksum(keychain: KeychainKind) -> String {
      *
      * The [`SignOptions`] can be used to tweak the behavior of the finalizer.
      */
-open func finalizePsbt(psbt: Psbt)throws  -> Bool {
+open func finalizePsbt(psbt: Psbt, signOptions: SignOptions? = nil)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSignerError.lift) {
     uniffi_bdkffi_fn_method_wallet_finalize_psbt(self.uniffiClonePointer(),
-        FfiConverterTypePsbt.lower(psbt),$0
+        FfiConverterTypePsbt.lower(psbt),
+        FfiConverterOptionTypeSignOptions.lower(signOptions),$0
     )
 })
 }
@@ -4678,10 +4899,10 @@ open func nextDerivationIndex(keychain: KeychainKind) -> UInt32 {
     
     /**
      * Get the next unused address for the given `keychain`, i.e. the address with the lowest
-     * derivation index that hasn't been used.
+     * derivation index that hasn't been used in a transaction.
      *
-     * This will attempt to derive and reveal a new address if no newly revealed addresses
-     * are available. See also [`reveal_next_address`](Self::reveal_next_address).
+     * This will attempt to reveal a new address if all previously revealed addresses have
+     * been used, in which case the returned address will be the same as calling [`Wallet::reveal_next_address`].
      *
      * **WARNING**: To avoid address reuse you must persist the changes resulting from one or more
      * calls to this method before closing the wallet. See [`Wallet::reveal_next_address`].
@@ -4789,10 +5010,11 @@ open func sentAndReceived(tx: Transaction) -> SentAndReceivedValues {
      * signers will follow the options, but the "software signers" (WIF keys and `xprv`) defined
      * in this library will.
      */
-open func sign(psbt: Psbt)throws  -> Bool {
+open func sign(psbt: Psbt, signOptions: SignOptions? = nil)throws  -> Bool {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSignerError.lift) {
     uniffi_bdkffi_fn_method_wallet_sign(self.uniffiClonePointer(),
-        FfiConverterTypePsbt.lower(psbt),$0
+        FfiConverterTypePsbt.lower(psbt),
+        FfiConverterOptionTypeSignOptions.lower(signOptions),$0
     )
 })
 }
@@ -5507,6 +5729,316 @@ public func FfiConverterTypeSentAndReceivedValues_lift(_ buf: RustBuffer) throws
 
 public func FfiConverterTypeSentAndReceivedValues_lower(_ value: SentAndReceivedValues) -> RustBuffer {
     return FfiConverterTypeSentAndReceivedValues.lower(value)
+}
+
+
+/**
+ * Response to an ElectrumClient.server_features request.
+ */
+public struct ServerFeaturesRes {
+    /**
+     * Server version reported.
+     */
+    public var serverVersion: String
+    /**
+     * Hash of the genesis block.
+     */
+    public var genesisHash: String
+    /**
+     * Minimum supported version of the protocol.
+     */
+    public var protocolMin: String
+    /**
+     * Maximum supported version of the protocol.
+     */
+    public var protocolMax: String
+    /**
+     * Hash function used to create the `ScriptHash`.
+     */
+    public var hashFunction: String?
+    /**
+     * Pruned height of the server.
+     */
+    public var pruning: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Server version reported.
+         */serverVersion: String, 
+        /**
+         * Hash of the genesis block.
+         */genesisHash: String, 
+        /**
+         * Minimum supported version of the protocol.
+         */protocolMin: String, 
+        /**
+         * Maximum supported version of the protocol.
+         */protocolMax: String, 
+        /**
+         * Hash function used to create the `ScriptHash`.
+         */hashFunction: String?, 
+        /**
+         * Pruned height of the server.
+         */pruning: Int64?) {
+        self.serverVersion = serverVersion
+        self.genesisHash = genesisHash
+        self.protocolMin = protocolMin
+        self.protocolMax = protocolMax
+        self.hashFunction = hashFunction
+        self.pruning = pruning
+    }
+}
+
+
+
+extension ServerFeaturesRes: Equatable, Hashable {
+    public static func ==(lhs: ServerFeaturesRes, rhs: ServerFeaturesRes) -> Bool {
+        if lhs.serverVersion != rhs.serverVersion {
+            return false
+        }
+        if lhs.genesisHash != rhs.genesisHash {
+            return false
+        }
+        if lhs.protocolMin != rhs.protocolMin {
+            return false
+        }
+        if lhs.protocolMax != rhs.protocolMax {
+            return false
+        }
+        if lhs.hashFunction != rhs.hashFunction {
+            return false
+        }
+        if lhs.pruning != rhs.pruning {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(serverVersion)
+        hasher.combine(genesisHash)
+        hasher.combine(protocolMin)
+        hasher.combine(protocolMax)
+        hasher.combine(hashFunction)
+        hasher.combine(pruning)
+    }
+}
+
+
+public struct FfiConverterTypeServerFeaturesRes: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ServerFeaturesRes {
+        return
+            try ServerFeaturesRes(
+                serverVersion: FfiConverterString.read(from: &buf), 
+                genesisHash: FfiConverterString.read(from: &buf), 
+                protocolMin: FfiConverterString.read(from: &buf), 
+                protocolMax: FfiConverterString.read(from: &buf), 
+                hashFunction: FfiConverterOptionString.read(from: &buf), 
+                pruning: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ServerFeaturesRes, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.serverVersion, into: &buf)
+        FfiConverterString.write(value.genesisHash, into: &buf)
+        FfiConverterString.write(value.protocolMin, into: &buf)
+        FfiConverterString.write(value.protocolMax, into: &buf)
+        FfiConverterOptionString.write(value.hashFunction, into: &buf)
+        FfiConverterOptionInt64.write(value.pruning, into: &buf)
+    }
+}
+
+
+public func FfiConverterTypeServerFeaturesRes_lift(_ buf: RustBuffer) throws -> ServerFeaturesRes {
+    return try FfiConverterTypeServerFeaturesRes.lift(buf)
+}
+
+public func FfiConverterTypeServerFeaturesRes_lower(_ value: ServerFeaturesRes) -> RustBuffer {
+    return FfiConverterTypeServerFeaturesRes.lower(value)
+}
+
+
+/**
+ * Options for a software signer.
+ *
+ * Adjust the behavior of our software signers and the way a transaction is finalized.
+ */
+public struct SignOptions {
+    /**
+     * Whether the signer should trust the `witness_utxo`, if the `non_witness_utxo` hasn't been
+     * provided
+     *
+     * Defaults to `false` to mitigate the "SegWit bug" which could trick the wallet into
+     * paying a fee larger than expected.
+     *
+     * Some wallets, especially if relatively old, might not provide the `non_witness_utxo` for
+     * SegWit transactions in the PSBT they generate: in those cases setting this to `true`
+     * should correctly produce a signature, at the expense of an increased trust in the creator
+     * of the PSBT.
+     *
+     * For more details see: <https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd>
+     */
+    public var trustWitnessUtxo: Bool
+    /**
+     * Whether the wallet should assume a specific height has been reached when trying to finalize
+     * a transaction
+     *
+     * The wallet will only "use" a timelock to satisfy the spending policy of an input if the
+     * timelock height has already been reached. This option allows overriding the "current height" to let the
+     * wallet use timelocks in the future to spend a coin.
+     */
+    public var assumeHeight: UInt32?
+    /**
+     * Whether the signer should use the `sighash_type` set in the PSBT when signing, no matter
+     * what its value is
+     *
+     * Defaults to `false` which will only allow signing using `SIGHASH_ALL`.
+     */
+    public var allowAllSighashes: Bool
+    /**
+     * Whether to try finalizing the PSBT after the inputs are signed.
+     *
+     * Defaults to `true` which will try finalizing PSBT after inputs are signed.
+     */
+    public var tryFinalize: Bool
+    /**
+     * Whether we should try to sign a taproot transaction with the taproot internal key
+     * or not. This option is ignored if we're signing a non-taproot PSBT.
+     *
+     * Defaults to `true`, i.e., we always try to sign with the taproot internal key.
+     */
+    public var signWithTapInternalKey: Bool
+    /**
+     * Whether we should grind ECDSA signature to ensure signing with low r
+     * or not.
+     * Defaults to `true`, i.e., we always grind ECDSA signature to sign with low r.
+     */
+    public var allowGrinding: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether the signer should trust the `witness_utxo`, if the `non_witness_utxo` hasn't been
+         * provided
+         *
+         * Defaults to `false` to mitigate the "SegWit bug" which could trick the wallet into
+         * paying a fee larger than expected.
+         *
+         * Some wallets, especially if relatively old, might not provide the `non_witness_utxo` for
+         * SegWit transactions in the PSBT they generate: in those cases setting this to `true`
+         * should correctly produce a signature, at the expense of an increased trust in the creator
+         * of the PSBT.
+         *
+         * For more details see: <https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd>
+         */trustWitnessUtxo: Bool, 
+        /**
+         * Whether the wallet should assume a specific height has been reached when trying to finalize
+         * a transaction
+         *
+         * The wallet will only "use" a timelock to satisfy the spending policy of an input if the
+         * timelock height has already been reached. This option allows overriding the "current height" to let the
+         * wallet use timelocks in the future to spend a coin.
+         */assumeHeight: UInt32?, 
+        /**
+         * Whether the signer should use the `sighash_type` set in the PSBT when signing, no matter
+         * what its value is
+         *
+         * Defaults to `false` which will only allow signing using `SIGHASH_ALL`.
+         */allowAllSighashes: Bool, 
+        /**
+         * Whether to try finalizing the PSBT after the inputs are signed.
+         *
+         * Defaults to `true` which will try finalizing PSBT after inputs are signed.
+         */tryFinalize: Bool, 
+        /**
+         * Whether we should try to sign a taproot transaction with the taproot internal key
+         * or not. This option is ignored if we're signing a non-taproot PSBT.
+         *
+         * Defaults to `true`, i.e., we always try to sign with the taproot internal key.
+         */signWithTapInternalKey: Bool, 
+        /**
+         * Whether we should grind ECDSA signature to ensure signing with low r
+         * or not.
+         * Defaults to `true`, i.e., we always grind ECDSA signature to sign with low r.
+         */allowGrinding: Bool) {
+        self.trustWitnessUtxo = trustWitnessUtxo
+        self.assumeHeight = assumeHeight
+        self.allowAllSighashes = allowAllSighashes
+        self.tryFinalize = tryFinalize
+        self.signWithTapInternalKey = signWithTapInternalKey
+        self.allowGrinding = allowGrinding
+    }
+}
+
+
+
+extension SignOptions: Equatable, Hashable {
+    public static func ==(lhs: SignOptions, rhs: SignOptions) -> Bool {
+        if lhs.trustWitnessUtxo != rhs.trustWitnessUtxo {
+            return false
+        }
+        if lhs.assumeHeight != rhs.assumeHeight {
+            return false
+        }
+        if lhs.allowAllSighashes != rhs.allowAllSighashes {
+            return false
+        }
+        if lhs.tryFinalize != rhs.tryFinalize {
+            return false
+        }
+        if lhs.signWithTapInternalKey != rhs.signWithTapInternalKey {
+            return false
+        }
+        if lhs.allowGrinding != rhs.allowGrinding {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(trustWitnessUtxo)
+        hasher.combine(assumeHeight)
+        hasher.combine(allowAllSighashes)
+        hasher.combine(tryFinalize)
+        hasher.combine(signWithTapInternalKey)
+        hasher.combine(allowGrinding)
+    }
+}
+
+
+public struct FfiConverterTypeSignOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SignOptions {
+        return
+            try SignOptions(
+                trustWitnessUtxo: FfiConverterBool.read(from: &buf), 
+                assumeHeight: FfiConverterOptionUInt32.read(from: &buf), 
+                allowAllSighashes: FfiConverterBool.read(from: &buf), 
+                tryFinalize: FfiConverterBool.read(from: &buf), 
+                signWithTapInternalKey: FfiConverterBool.read(from: &buf), 
+                allowGrinding: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SignOptions, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.trustWitnessUtxo, into: &buf)
+        FfiConverterOptionUInt32.write(value.assumeHeight, into: &buf)
+        FfiConverterBool.write(value.allowAllSighashes, into: &buf)
+        FfiConverterBool.write(value.tryFinalize, into: &buf)
+        FfiConverterBool.write(value.signWithTapInternalKey, into: &buf)
+        FfiConverterBool.write(value.allowGrinding, into: &buf)
+    }
+}
+
+
+public func FfiConverterTypeSignOptions_lift(_ buf: RustBuffer) throws -> SignOptions {
+    return try FfiConverterTypeSignOptions.lift(buf)
+}
+
+public func FfiConverterTypeSignOptions_lower(_ value: SignOptions) -> RustBuffer {
+    return FfiConverterTypeSignOptions.lower(value)
 }
 
 
@@ -9086,6 +9618,27 @@ fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -9228,6 +9781,27 @@ fileprivate struct FfiConverterOptionTypeLocalOutput: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeLocalOutput.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+fileprivate struct FfiConverterOptionTypeSignOptions: FfiConverterRustBuffer {
+    typealias SwiftType = SignOptions?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSignOptions.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSignOptions.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -9627,6 +10201,29 @@ fileprivate struct FfiConverterSequenceTypeOutPoint: FfiConverterRustBuffer {
     }
 }
 
+fileprivate struct FfiConverterDictionaryUInt16Double: FfiConverterRustBuffer {
+    public static func write(_ value: [UInt16: Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterUInt16.write(key, into: &buf)
+            FfiConverterDouble.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt16: Double] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [UInt16: Double]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterUInt16.read(from: &buf)
+            let value = try FfiConverterDouble.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
 fileprivate struct FfiConverterDictionaryUInt32SequenceTypeCondition: FfiConverterRustBuffer {
     public static func write(_ value: [UInt32: [Condition]], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -9787,19 +10384,28 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_descriptorsecretkey_secret_bytes() != 40876) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_broadcast() != 47170) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_estimate_fee() != 17604) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_full_scan() != 63481) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_full_scan() != 45625) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_sync() != 23534) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_server_features() != 18744) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_electrumclient_sync() != 62150) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_electrumclient_transaction_broadcast() != 36923) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_esploraclient_broadcast() != 21200) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_full_scan() != 30443) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_full_scan() != 43201) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_fee_estimates() != 64331) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_esploraclient_get_height() != 1218) {
@@ -9808,7 +10414,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_esploraclient_get_tx() != 59770) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_sync() != 39911) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_sync() != 11965) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_fullscanrequestbuilder_build() != 56245) {
@@ -9991,7 +10597,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_wallet_descriptor_checksum() != 60436) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_finalize_psbt() != 44900) {
+    if (uniffi_bdkffi_checksum_method_wallet_finalize_psbt() != 52988) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_get_tx() != 59450) {
@@ -10042,7 +10648,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_wallet_sent_and_received() != 15077) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_sign() != 15606) {
+    if (uniffi_bdkffi_checksum_method_wallet_sign() != 41599) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_start_full_scan() != 3023) {
