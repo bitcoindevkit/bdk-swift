@@ -24,13 +24,15 @@ jobs:
         with:
           path: dist
 
+      - name: "Set default Rust version to 1.77.1"
+        run: rustup default 1.77.1
+
       - name: Install Rust targets
         working-directory: build
         run: |
-          rustup install nightly-2023-04-10
-          rustup component add rust-src --toolchain nightly-2023-04-10
+          rustup component add rust-src
           rustup target add aarch64-apple-ios x86_64-apple-ios
-          rustup target add aarch64-apple-ios-sim --toolchain nightly-2023-04-10
+          rustup target add aarch64-apple-ios-sim
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Run bdk-ffi-bindgen
