@@ -46,10 +46,8 @@ jobs:
           echo url = ${{ env.BDKFFIURL }}
           sed "s/BDKFFICHECKSUM/${BDKFFICHECKSUM}/;s/BDKFFIURL/${BDKFFIURL}/" Package.swift.txt > ../../dist/Package.swift
           cp Sources/BitcoinDevKit/BitcoinDevKit.swift ../../dist/Sources/BitcoinDevKit/BitcoinDevKit.swift
-          cp Sources/BitcoinDevKit/Bitcoin.swift ../../dist/Sources/BitcoinDevKit/Bitcoin.swift
           cd ../../dist
           git add Sources/BitcoinDevKit/BitcoinDevKit.swift
-          git add Sources/BitcoinDevKit/Bitcoin.swift
           git add Package.swift
           git commit -m "Update BitcoinDevKit.swift and Package.swift for release ${{ inputs.version }}"
           git push
