@@ -61,4 +61,4 @@ jobs:
           tag: ${{ inputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
           name: Release ${{ inputs.version }}
-          prerelease: true
+          prerelease: false
