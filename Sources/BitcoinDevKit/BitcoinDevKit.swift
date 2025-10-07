@@ -395,7 +395,13 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 
 
 // Public interface members begin here.
-
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1498,7 +1504,7 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
     /**
      * Construct a [`CbfComponents`] for a [`Wallet`].
      */
-    func build(wallet: Wallet) throws  -> CbfComponents
+    func build(wallet: Wallet)  -> CbfComponents
     
     /**
      * Configure the time in milliseconds that a node has to:
@@ -1517,18 +1523,6 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
      * working directory will be used.
      */
     func dataDir(dataDir: String)  -> CbfBuilder
-    
-    /**
-     * Configure a custom DNS resolver when querying DNS seeds. Default is `1.1.1.1` managed by
-     * CloudFlare.
-     */
-    func dnsResolver(dnsResolver: IpAddress)  -> CbfBuilder
-    
-    /**
-     * Set the log level for the node. Production applications may want to omit `Debug` messages
-     * to avoid heap allocations.
-     */
-    func logLevel(logLevel: LogLevel)  -> CbfBuilder
     
     /**
      * Bitcoin full-nodes to attempt a connection with.
@@ -1628,8 +1622,8 @@ public convenience init() {
     /**
      * Construct a [`CbfComponents`] for a [`Wallet`].
      */
-open func build(wallet: Wallet)throws  -> CbfComponents  {
-    return try  FfiConverterTypeCbfComponents_lift(try rustCallWithError(FfiConverterTypeCbfBuilderError_lift) {
+open func build(wallet: Wallet) -> CbfComponents  {
+    return try!  FfiConverterTypeCbfComponents_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_cbfbuilder_build(self.uniffiClonePointer(),
         FfiConverterTypeWallet_lower(wallet),$0
     )
@@ -1669,30 +1663,6 @@ open func dataDir(dataDir: String) -> CbfBuilder  {
     return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_cbfbuilder_data_dir(self.uniffiClonePointer(),
         FfiConverterString.lower(dataDir),$0
-    )
-})
-}
-    
-    /**
-     * Configure a custom DNS resolver when querying DNS seeds. Default is `1.1.1.1` managed by
-     * CloudFlare.
-     */
-open func dnsResolver(dnsResolver: IpAddress) -> CbfBuilder  {
-    return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
-    uniffi_bdkffi_fn_method_cbfbuilder_dns_resolver(self.uniffiClonePointer(),
-        FfiConverterTypeIpAddress_lower(dnsResolver),$0
-    )
-})
-}
-    
-    /**
-     * Set the log level for the node. Production applications may want to omit `Debug` messages
-     * to avoid heap allocations.
-     */
-open func logLevel(logLevel: LogLevel) -> CbfBuilder  {
-    return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
-    uniffi_bdkffi_fn_method_cbfbuilder_log_level(self.uniffiClonePointer(),
-        FfiConverterTypeLogLevel_lower(logLevel),$0
     )
 })
 }
@@ -1796,14 +1766,6 @@ public func FfiConverterTypeCbfBuilder_lower(_ value: CbfBuilder) -> UnsafeMutab
 public protocol CbfClientProtocol: AnyObject, Sendable {
     
     /**
-     * Add scripts for the node to watch for as they are revealed. Typically used after creating
-     * a transaction or revealing a receive address.
-     *
-     * Note that only future blocks will be checked for these scripts, not past blocks.
-     */
-    func addRevealedScripts(wallet: Wallet) throws 
-    
-    /**
      * Fetch the average fee rate for a block by requesting it from a peer. Not recommend for
      * resource-limited devices.
      */
@@ -1812,7 +1774,7 @@ public protocol CbfClientProtocol: AnyObject, Sendable {
     /**
      * Broadcast a transaction to the network, erroring if the node has stopped running.
      */
-    func broadcast(transaction: Transaction) throws 
+    func broadcast(transaction: Transaction) async throws  -> Wtxid
     
     /**
      * Add another [`Peer`] to attempt a connection with.
@@ -1831,19 +1793,17 @@ public protocol CbfClientProtocol: AnyObject, Sendable {
      * for compact block filter nodes from the seeder. For example `dns.myseeder.com` will be queried
      * as `x849.dns.myseeder.com`. This has no guarantee to return any `IpAddr`.
      */
-    func lookupHost(hostname: String) async  -> [IpAddress]
+    func lookupHost(hostname: String)  -> [IpAddress]
     
     /**
      * The minimum fee rate required to broadcast a transcation to all connected peers.
      */
     func minBroadcastFeerate() async throws  -> FeeRate
     
-    func nextInfo() async throws  -> Info
-    
     /**
-     * Return the next available log message from a node. If none is returned, the node has stopped.
+     * Return the next available info message from a node. If none is returned, the node has stopped.
      */
-    func nextLog() async throws  -> String
+    func nextInfo() async throws  -> Info
     
     /**
      * Return the next available warning message from a node. If none is returned, the node has stopped.
@@ -1918,19 +1878,6 @@ open class CbfClient: CbfClientProtocol, @unchecked Sendable {
 
     
     /**
-     * Add scripts for the node to watch for as they are revealed. Typically used after creating
-     * a transaction or revealing a receive address.
-     *
-     * Note that only future blocks will be checked for these scripts, not past blocks.
-     */
-open func addRevealedScripts(wallet: Wallet)throws   {try rustCallWithError(FfiConverterTypeCbfError_lift) {
-    uniffi_bdkffi_fn_method_cbfclient_add_revealed_scripts(self.uniffiClonePointer(),
-        FfiConverterTypeWallet_lower(wallet),$0
-    )
-}
-}
-    
-    /**
      * Fetch the average fee rate for a block by requesting it from a peer. Not recommend for
      * resource-limited devices.
      */
@@ -1954,11 +1901,21 @@ open func averageFeeRate(blockhash: BlockHash)async throws  -> FeeRate  {
     /**
      * Broadcast a transaction to the network, erroring if the node has stopped running.
      */
-open func broadcast(transaction: Transaction)throws   {try rustCallWithError(FfiConverterTypeCbfError_lift) {
-    uniffi_bdkffi_fn_method_cbfclient_broadcast(self.uniffiClonePointer(),
-        FfiConverterTypeTransaction_lower(transaction),$0
-    )
-}
+open func broadcast(transaction: Transaction)async throws  -> Wtxid  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_bdkffi_fn_method_cbfclient_broadcast(
+                    self.uniffiClonePointer(),
+                    FfiConverterTypeTransaction_lower(transaction)
+                )
+            },
+            pollFunc: ffi_bdkffi_rust_future_poll_pointer,
+            completeFunc: ffi_bdkffi_rust_future_complete_pointer,
+            freeFunc: ffi_bdkffi_rust_future_free_pointer,
+            liftFunc: FfiConverterTypeWtxid_lift,
+            errorHandler: FfiConverterTypeCbfError_lift
+        )
 }
     
     /**
@@ -1988,22 +1945,12 @@ open func isRunning() -> Bool  {
      * for compact block filter nodes from the seeder. For example `dns.myseeder.com` will be queried
      * as `x849.dns.myseeder.com`. This has no guarantee to return any `IpAddr`.
      */
-open func lookupHost(hostname: String)async  -> [IpAddress]  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_bdkffi_fn_method_cbfclient_lookup_host(
-                    self.uniffiClonePointer(),
-                    FfiConverterString.lower(hostname)
-                )
-            },
-            pollFunc: ffi_bdkffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterSequenceTypeIpAddress.lift,
-            errorHandler: nil
-            
-        )
+open func lookupHost(hostname: String) -> [IpAddress]  {
+    return try!  FfiConverterSequenceTypeIpAddress.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_cbfclient_lookup_host(self.uniffiClonePointer(),
+        FfiConverterString.lower(hostname),$0
+    )
+})
 }
     
     /**
@@ -2026,6 +1973,9 @@ open func minBroadcastFeerate()async throws  -> FeeRate  {
         )
 }
     
+    /**
+     * Return the next available info message from a node. If none is returned, the node has stopped.
+     */
 open func nextInfo()async throws  -> Info  {
     return
         try  await uniffiRustCallAsync(
@@ -2039,26 +1989,6 @@ open func nextInfo()async throws  -> Info  {
             completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
             freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeInfo_lift,
-            errorHandler: FfiConverterTypeCbfError_lift
-        )
-}
-    
-    /**
-     * Return the next available log message from a node. If none is returned, the node has stopped.
-     */
-open func nextLog()async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_bdkffi_fn_method_cbfclient_next_log(
-                    self.uniffiClonePointer()
-                    
-                )
-            },
-            pollFunc: ffi_bdkffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeCbfError_lift
         )
 }
@@ -2726,6 +2656,8 @@ public func FfiConverterTypeDerivationPath_lower(_ value: DerivationPath) -> Uns
  */
 public protocol DescriptorProtocol: AnyObject, Sendable {
     
+    func descType()  -> DescriptorType
+    
     /**
      * A unique identifier for the descriptor.
      */
@@ -2927,6 +2859,13 @@ public static func newBip86Public(publicKey: DescriptorPublicKey, fingerprint: S
 }
     
 
+    
+open func descType() -> DescriptorType  {
+    return try!  FfiConverterTypeDescriptorType_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptor_desc_type(self.uniffiClonePointer(),$0
+    )
+})
+}
     
     /**
      * A unique identifier for the descriptor.
@@ -4757,13 +4696,7 @@ open func inspect(keychain: KeychainKind, index: UInt32, script: Script)  {try! 
     
 
 }
-// Magic number for the Rust proxy to call using the same mechanism as every other method,
-// to free the callback once it's dropped by Rust.
-private let IDX_CALLBACK_FREE: Int32 = 0
-// Callback return codes
-private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
-private let UNIFFI_CALLBACK_ERROR: Int32 = 1
-private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
 fileprivate struct UniffiCallbackInterfaceFullScanScriptInspector {
@@ -6319,8 +6252,17 @@ open func toBytes() -> Data  {
 })
 }
     
+    open var description: String {
+        return try!  FfiConverterString.lift(
+            try! rustCall() {
+    uniffi_bdkffi_fn_method_script_uniffi_trait_display(self.uniffiClonePointer(),$0
+    )
+}
+        )
+    }
 
 }
+extension Script: CustomStringConvertible {}
 
 
 #if swift(>=5.8)
@@ -7336,6 +7278,28 @@ public protocol TxBuilderProtocol: AnyObject, Sendable {
     func drainWallet()  -> TxBuilder
     
     /**
+     * Excludes any outpoints whose enclosing transaction has fewer than `min_confirms`
+     * confirmations.
+     *
+     * `min_confirms` is the minimum number of confirmations a transaction must have in order for
+     * its outpoints to remain spendable.
+     * - Passing `0` will include all transactions (no filtering).
+     * - Passing `1` will exclude all unconfirmed transactions (equivalent to
+     * `exclude_unconfirmed`).
+     * - Passing `6` will only allow outpoints from transactions with at least 6 confirmations.
+     *
+     * If you chain this with other filtering methods, the final set of unspendable outpoints will
+     * be the union of all filters.
+     */
+    func excludeBelowConfirmations(minConfirms: UInt32)  -> TxBuilder
+    
+    /**
+     * Exclude outpoints whose enclosing transaction is unconfirmed.
+     * This is a shorthand for exclude_below_confirmations(1).
+     */
+    func excludeUnconfirmed()  -> TxBuilder
+    
+    /**
      * Set an absolute fee The `fee_absolute` method refers to the absolute transaction fee in `Amount`. If anyone sets
      * both the `fee_absolute` method and the `fee_rate` method, the `FeePolicy` enum will be set by whichever method was
      * called last, as the `FeeRate` and `FeeAmount` are mutually exclusive.
@@ -7648,6 +7612,39 @@ open func drainTo(script: Script) -> TxBuilder  {
 open func drainWallet() -> TxBuilder  {
     return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_drain_wallet(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Excludes any outpoints whose enclosing transaction has fewer than `min_confirms`
+     * confirmations.
+     *
+     * `min_confirms` is the minimum number of confirmations a transaction must have in order for
+     * its outpoints to remain spendable.
+     * - Passing `0` will include all transactions (no filtering).
+     * - Passing `1` will exclude all unconfirmed transactions (equivalent to
+     * `exclude_unconfirmed`).
+     * - Passing `6` will only allow outpoints from transactions with at least 6 confirmations.
+     *
+     * If you chain this with other filtering methods, the final set of unspendable outpoints will
+     * be the union of all filters.
+     */
+open func excludeBelowConfirmations(minConfirms: UInt32) -> TxBuilder  {
+    return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_exclude_below_confirmations(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(minConfirms),$0
+    )
+})
+}
+    
+    /**
+     * Exclude outpoints whose enclosing transaction is unconfirmed.
+     * This is a shorthand for exclude_below_confirmations(1).
+     */
+open func excludeUnconfirmed() -> TxBuilder  {
+    return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_exclude_unconfirmed(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -8369,6 +8366,15 @@ public func FfiConverterTypeUpdate_lower(_ value: Update) -> UnsafeMutableRawPoi
 public protocol WalletProtocol: AnyObject, Sendable {
     
     /**
+     * Apply transactions that have been evicted from the mempool.
+     * Transactions may be evicted for paying too-low fee, or for being malformed.
+     * Irrelevant transactions are ignored.
+     *
+     * For more information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.Wallet.html#method.apply_evicted_txs
+     */
+    func applyEvictedTxs(evictedTxs: [EvictedTx]) 
+    
+    /**
      * Apply relevant unconfirmed transactions to the wallet.
      * Transactions that are not relevant are filtered out.
      */
@@ -8724,19 +8730,89 @@ public convenience init(descriptor: Descriptor, changeDescriptor: Descriptor, ne
 
     
     /**
-     * Build Wallet by loading from persistence.
+     * Build a new `Wallet` from a two-path descriptor.
+     *
+     * This function parses a multipath descriptor with exactly 2 paths and creates a wallet using the existing receive and change wallet creation logic.
+     *
+     * Multipath descriptors follow [BIP-389](https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki) and allow defining both receive and change derivation paths in a single descriptor using the <0;1> syntax.
+     *
+     * If you have previously created a wallet, use load instead.
+     *
+     * Returns an error if the descriptor is invalid or not a 2-path multipath descriptor.
      */
-public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, persister: Persister)throws  -> Wallet  {
+public static func createFromTwoPathDescriptor(twoPathDescriptor: Descriptor, network: Network, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_from_two_path_descriptor(
+        FfiConverterTypeDescriptor_lower(twoPathDescriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a new single descriptor `Wallet`.
+     *
+     * If you have previously created a wallet, use `Wallet::load` instead.
+     *
+     * # Note
+     *
+     * Only use this method when creating a wallet designed to be used with a single
+     * descriptor and keychain. Otherwise the recommended way to construct a new wallet is
+     * by using `Wallet::new`. It's worth noting that not all features are available
+     * with single descriptor wallets, for example setting a `change_policy` on `TxBuilder`
+     * and related methods such as `do_not_spend_change`. This is because all payments are
+     * received on the external keychain (including change), and without a change keychain
+     * BDK lacks enough information to distinguish between change and outside payments.
+     *
+     * Additionally because this wallet has no internal (change) keychain, all methods that
+     * require a `KeychainKind` as input, e.g. `reveal_next_address` should only be called
+     * using the `External` variant. In most cases passing `Internal` is treated as the
+     * equivalent of `External` but this behavior must not be relied on.
+     */
+public static func createSingle(descriptor: Descriptor, network: Network, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_single(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build Wallet by loading from persistence.
+     *
+     * Note that the descriptor secret keys are not persisted to the db.
+     */
+public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
     return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
     uniffi_bdkffi_fn_constructor_wallet_load(
         FfiConverterTypeDescriptor_lower(descriptor),
         FfiConverterTypeDescriptor_lower(changeDescriptor),
-        FfiConverterTypePersister_lower(persister),$0
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
     )
 })
 }
     
 
+    
+    /**
+     * Apply transactions that have been evicted from the mempool.
+     * Transactions may be evicted for paying too-low fee, or for being malformed.
+     * Irrelevant transactions are ignored.
+     *
+     * For more information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.Wallet.html#method.apply_evicted_txs
+     */
+open func applyEvictedTxs(evictedTxs: [EvictedTx])  {try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_apply_evicted_txs(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeEvictedTx.lower(evictedTxs),$0
+    )
+}
+}
     
     /**
      * Apply relevant unconfirmed transactions to the wallet.
@@ -10105,6 +10181,63 @@ public func FfiConverterTypeConfirmationBlockTime_lift(_ buf: RustBuffer) throws
 #endif
 public func FfiConverterTypeConfirmationBlockTime_lower(_ value: ConfirmationBlockTime) -> RustBuffer {
     return FfiConverterTypeConfirmationBlockTime.lower(value)
+}
+
+
+/**
+ * This type replaces the Rust tuple `(txid, evicted_at)` used in the Wallet::apply_evicted_txs` method,
+ * where `evicted_at` is the timestamp of when the transaction `txid` was evicted from the mempool.
+ * Transactions may be evicted for paying a low fee rate or having invalid scripts.
+ */
+public struct EvictedTx {
+    public var txid: Txid
+    public var evictedAt: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(txid: Txid, evictedAt: UInt64) {
+        self.txid = txid
+        self.evictedAt = evictedAt
+    }
+}
+
+#if compiler(>=6)
+extension EvictedTx: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEvictedTx: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EvictedTx {
+        return
+            try EvictedTx(
+                txid: FfiConverterTypeTxid.read(from: &buf), 
+                evictedAt: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EvictedTx, into buf: inout [UInt8]) {
+        FfiConverterTypeTxid.write(value.txid, into: &buf)
+        FfiConverterUInt64.write(value.evictedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvictedTx_lift(_ buf: RustBuffer) throws -> EvictedTx {
+    return try FfiConverterTypeEvictedTx.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvictedTx_lower(_ value: EvictedTx) -> RustBuffer {
+    return FfiConverterTypeEvictedTx.lower(value)
 }
 
 
@@ -12028,6 +12161,9 @@ extension AddressData: Equatable, Hashable {}
 
 
 
+
+
+
 public enum AddressParseError: Swift.Error {
 
     
@@ -12151,11 +12287,14 @@ extension AddressParseError: Equatable, Hashable {}
 
 
 
+
 extension AddressParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12312,11 +12451,14 @@ extension Bip32Error: Equatable, Hashable {}
 
 
 
+
 extension Bip32Error: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12421,11 +12563,14 @@ extension Bip39Error: Equatable, Hashable {}
 
 
 
+
 extension Bip39Error: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12510,6 +12655,8 @@ extension CalculateFeeError: Foundation.LocalizedError {
 
 
 
+
+
 public enum CannotConnectError: Swift.Error {
 
     
@@ -12575,6 +12722,7 @@ extension CannotConnectError: Equatable, Hashable {}
 
 
 
+
 extension CannotConnectError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
@@ -12582,77 +12730,6 @@ extension CannotConnectError: Foundation.LocalizedError {
 }
 
 
-
-public enum CbfBuilderError: Swift.Error {
-
-    
-    
-    case DatabaseError(reason: String
-    )
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCbfBuilderError: FfiConverterRustBuffer {
-    typealias SwiftType = CbfBuilderError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CbfBuilderError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .DatabaseError(
-            reason: try FfiConverterString.read(from: &buf)
-            )
-
-         default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: CbfBuilderError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        
-        case let .DatabaseError(reason):
-            writeInt(&buf, Int32(1))
-            FfiConverterString.write(reason, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCbfBuilderError_lift(_ buf: RustBuffer) throws -> CbfBuilderError {
-    return try FfiConverterTypeCbfBuilderError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCbfBuilderError_lower(_ value: CbfBuilderError) -> RustBuffer {
-    return FfiConverterTypeCbfBuilderError.lower(value)
-}
-
-
-extension CbfBuilderError: Equatable, Hashable {}
-
-
-
-extension CbfBuilderError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
 
 
 
@@ -12717,11 +12794,14 @@ extension CbfError: Equatable, Hashable {}
 
 
 
+
 extension CbfError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -12810,6 +12890,8 @@ public func FfiConverterTypeChainPosition_lower(_ value: ChainPosition) -> RustB
 
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -12893,6 +12975,9 @@ public func FfiConverterTypeChangeSpendPolicy_lower(_ value: ChangeSpendPolicy) 
 
 
 extension ChangeSpendPolicy: Equatable, Hashable {}
+
+
+
 
 
 
@@ -13150,11 +13235,14 @@ extension CreateTxError: Equatable, Hashable {}
 
 
 
+
 extension CreateTxError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13239,11 +13327,14 @@ extension CreateWithPersistError: Equatable, Hashable {}
 
 
 
+
 extension CreateWithPersistError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13412,11 +13503,14 @@ extension DescriptorError: Equatable, Hashable {}
 
 
 
+
 extension DescriptorError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13501,11 +13595,183 @@ extension DescriptorKeyError: Equatable, Hashable {}
 
 
 
+
 extension DescriptorKeyError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Descriptor Type of the descriptor
+ */
+
+public enum DescriptorType {
+    
+    /**
+     * Bare descriptor(Contains the native P2pk)
+     */
+    case bare
+    /**
+     * Pure Sh Descriptor. Does not contain nested Wsh/Wpkh
+     */
+    case sh
+    /**
+     * Pkh Descriptor
+     */
+    case pkh
+    /**
+     * Wpkh Descriptor
+     */
+    case wpkh
+    /**
+     * Wsh
+     */
+    case wsh
+    /**
+     * Sh Wrapped Wsh
+     */
+    case shWsh
+    /**
+     * Sh wrapped Wpkh
+     */
+    case shWpkh
+    /**
+     * Sh Sorted Multi
+     */
+    case shSortedMulti
+    /**
+     * Wsh Sorted Multi
+     */
+    case wshSortedMulti
+    /**
+     * Sh Wsh Sorted Multi
+     */
+    case shWshSortedMulti
+    /**
+     * Tr Descriptor
+     */
+    case tr
+}
+
+
+#if compiler(>=6)
+extension DescriptorType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDescriptorType: FfiConverterRustBuffer {
+    typealias SwiftType = DescriptorType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DescriptorType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .bare
+        
+        case 2: return .sh
+        
+        case 3: return .pkh
+        
+        case 4: return .wpkh
+        
+        case 5: return .wsh
+        
+        case 6: return .shWsh
+        
+        case 7: return .shWpkh
+        
+        case 8: return .shSortedMulti
+        
+        case 9: return .wshSortedMulti
+        
+        case 10: return .shWshSortedMulti
+        
+        case 11: return .tr
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DescriptorType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .bare:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .sh:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .pkh:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .wpkh:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .wsh:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .shWsh:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .shWpkh:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .shSortedMulti:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .wshSortedMulti:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .shWshSortedMulti:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .tr:
+            writeInt(&buf, Int32(11))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDescriptorType_lift(_ buf: RustBuffer) throws -> DescriptorType {
+    return try FfiConverterTypeDescriptorType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDescriptorType_lower(_ value: DescriptorType) -> RustBuffer {
+    return FfiConverterTypeDescriptorType.lower(value)
+}
+
+
+extension DescriptorType: Equatable, Hashable {}
+
+
+
+
 
 
 
@@ -13706,11 +13972,14 @@ extension ElectrumError: Equatable, Hashable {}
 
 
 
+
 extension ElectrumError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13895,11 +14164,14 @@ extension EsploraError: Equatable, Hashable {}
 
 
 
+
 extension EsploraError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13986,11 +14258,14 @@ extension ExtractTxError: Equatable, Hashable {}
 
 
 
+
 extension ExtractTxError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14055,11 +14330,14 @@ extension FeeRateError: Equatable, Hashable {}
 
 
 
+
 extension FeeRateError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14150,11 +14428,14 @@ extension FromScriptError: Equatable, Hashable {}
 
 
 
+
 extension FromScriptError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14233,11 +14514,14 @@ extension HashParseError: Equatable, Hashable {}
 
 
 
+
 extension HashParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -14257,30 +14541,20 @@ public enum Info {
      */
     case successfulHandshake
     /**
-     * The block header chain of most work was extended to this height.
-     */
-    case newChainHeight(height: UInt32
-    )
-    /**
-     * A new fork was advertised to the node, but has not been selected yet.
-     */
-    case newFork(height: UInt32
-    )
-    /**
      * A percentage value of filters that have been scanned.
      */
-    case progress(progress: Float
+    case progress(
+        /**
+         * The height of the local block chain.
+         */chainHeight: UInt32, 
+        /**
+         * The percent of filters downloaded.
+         */filtersDownloadedPercent: Float
     )
     /**
-     * A state in the node syncing process.
+     * A relevant block was downloaded from a peer.
      */
-    case stateUpdate(nodeState: NodeState
-    )
-    /**
-     * A transaction was broadcast over the wire to a peer that requested it from our inventory.
-     * The transaction may or may not be rejected by recipient nodes.
-     */
-    case txGossiped(wtxid: String
+    case blockReceived(String
     )
 }
 
@@ -14303,19 +14577,10 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
         
         case 2: return .successfulHandshake
         
-        case 3: return .newChainHeight(height: try FfiConverterUInt32.read(from: &buf)
+        case 3: return .progress(chainHeight: try FfiConverterUInt32.read(from: &buf), filtersDownloadedPercent: try FfiConverterFloat.read(from: &buf)
         )
         
-        case 4: return .newFork(height: try FfiConverterUInt32.read(from: &buf)
-        )
-        
-        case 5: return .progress(progress: try FfiConverterFloat.read(from: &buf)
-        )
-        
-        case 6: return .stateUpdate(nodeState: try FfiConverterTypeNodeState.read(from: &buf)
-        )
-        
-        case 7: return .txGossiped(wtxid: try FfiConverterString.read(from: &buf)
+        case 4: return .blockReceived(try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -14334,29 +14599,15 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case let .newChainHeight(height):
+        case let .progress(chainHeight,filtersDownloadedPercent):
             writeInt(&buf, Int32(3))
-            FfiConverterUInt32.write(height, into: &buf)
+            FfiConverterUInt32.write(chainHeight, into: &buf)
+            FfiConverterFloat.write(filtersDownloadedPercent, into: &buf)
             
         
-        case let .newFork(height):
+        case let .blockReceived(v1):
             writeInt(&buf, Int32(4))
-            FfiConverterUInt32.write(height, into: &buf)
-            
-        
-        case let .progress(progress):
-            writeInt(&buf, Int32(5))
-            FfiConverterFloat.write(progress, into: &buf)
-            
-        
-        case let .stateUpdate(nodeState):
-            writeInt(&buf, Int32(6))
-            FfiConverterTypeNodeState.write(nodeState, into: &buf)
-            
-        
-        case let .txGossiped(wtxid):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(wtxid, into: &buf)
+            FfiConverterString.write(v1, into: &buf)
             
         }
     }
@@ -14379,6 +14630,9 @@ public func FfiConverterTypeInfo_lower(_ value: Info) -> RustBuffer {
 
 
 extension Info: Equatable, Hashable {}
+
+
+
 
 
 
@@ -14455,6 +14709,9 @@ public func FfiConverterTypeKeychainKind_lower(_ value: KeychainKind) -> RustBuf
 
 
 extension KeychainKind: Equatable, Hashable {}
+
+
+
 
 
 
@@ -14540,11 +14797,14 @@ extension LoadWithPersistError: Equatable, Hashable {}
 
 
 
+
 extension LoadWithPersistError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -14620,91 +14880,6 @@ extension LockTime: Equatable, Hashable {}
 
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * Select the category of messages for the node to emit.
- */
-
-public enum LogLevel {
-    
-    /**
-     * Send string messages. These messages are intended for debugging or troubleshooting
-     * node operation.
-     */
-    case debug
-    /**
-     * Send info and warning messages, but omit debug strings - including their memory allocations.
-     * Ideal for a production application that uses minimal logging.
-     */
-    case info
-    /**
-     * Omit debug strings and info messages, including their memory allocations.
-     */
-    case warning
-}
-
-
-#if compiler(>=6)
-extension LogLevel: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLogLevel: FfiConverterRustBuffer {
-    typealias SwiftType = LogLevel
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LogLevel {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .debug
-        
-        case 2: return .info
-        
-        case 3: return .warning
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: LogLevel, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .debug:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .info:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .warning:
-            writeInt(&buf, Int32(3))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLogLevel_lift(_ buf: RustBuffer) throws -> LogLevel {
-    return try FfiConverterTypeLogLevel.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
-    return FfiConverterTypeLogLevel.lower(value)
-}
-
-
-extension LogLevel: Equatable, Hashable {}
 
 
 
@@ -15062,6 +15237,7 @@ extension MiniscriptError: Equatable, Hashable {}
 
 
 
+
 extension MiniscriptError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
@@ -15069,16 +15245,29 @@ extension MiniscriptError: Foundation.LocalizedError {
 }
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The cryptocurrency network to act on.
+ *
+ * This is an exhaustive enum, meaning that we cannot add any future networks without defining a
+ * new, incompatible version of this type. If you are using this type directly and wish to support
+ * the new network, this will be a breaking change to your APIs and likely require changes in your
+ * code.
+ *
+ * If you are concerned about forward compatibility, consider using T: Into<Params> instead of this
+ * type as a parameter to functions in your public API, or directly using the Params type.
+ */
 
 public enum Network {
     
     case bitcoin
     case testnet
+    case testnet4
     case signet
     case regtest
-    case testnet4
 }
 
 
@@ -15100,11 +15289,11 @@ public struct FfiConverterTypeNetwork: FfiConverterRustBuffer {
         
         case 2: return .testnet
         
-        case 3: return .signet
+        case 3: return .testnet4
         
-        case 4: return .regtest
+        case 4: return .signet
         
-        case 5: return .testnet4
+        case 5: return .regtest
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -15122,15 +15311,15 @@ public struct FfiConverterTypeNetwork: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .signet:
+        case .testnet4:
             writeInt(&buf, Int32(3))
         
         
-        case .regtest:
+        case .signet:
             writeInt(&buf, Int32(4))
         
         
-        case .testnet4:
+        case .regtest:
             writeInt(&buf, Int32(5))
         
         }
@@ -15157,109 +15346,6 @@ extension Network: Equatable, Hashable {}
 
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * The state of the node with respect to connected peers.
- */
-
-public enum NodeState {
-    
-    /**
-     * We are behind on block headers according to our peers.
-     */
-    case behind
-    /**
-     * We may start downloading compact block filter headers.
-     */
-    case headersSynced
-    /**
-     * We may start scanning compact block filters.
-     */
-    case filterHeadersSynced
-    /**
-     * We may start asking for blocks with matches.
-     */
-    case filtersSynced
-    /**
-     * We found all known transactions to the wallet.
-     */
-    case transactionsSynced
-}
-
-
-#if compiler(>=6)
-extension NodeState: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeNodeState: FfiConverterRustBuffer {
-    typealias SwiftType = NodeState
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NodeState {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .behind
-        
-        case 2: return .headersSynced
-        
-        case 3: return .filterHeadersSynced
-        
-        case 4: return .filtersSynced
-        
-        case 5: return .transactionsSynced
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: NodeState, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .behind:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .headersSynced:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .filterHeadersSynced:
-            writeInt(&buf, Int32(3))
-        
-        
-        case .filtersSynced:
-            writeInt(&buf, Int32(4))
-        
-        
-        case .transactionsSynced:
-            writeInt(&buf, Int32(5))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNodeState_lift(_ buf: RustBuffer) throws -> NodeState {
-    return try FfiConverterTypeNodeState.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNodeState_lower(_ value: NodeState) -> RustBuffer {
-    return FfiConverterTypeNodeState.lower(value)
-}
-
-
-extension NodeState: Equatable, Hashable {}
 
 
 
@@ -15359,11 +15445,14 @@ extension ParseAmountError: Equatable, Hashable {}
 
 
 
+
 extension ParseAmountError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -15432,11 +15521,14 @@ extension PersistenceError: Equatable, Hashable {}
 
 
 
+
 extension PersistenceError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -15519,6 +15611,9 @@ public func FfiConverterTypePkOrF_lower(_ value: PkOrF) -> RustBuffer {
 
 
 extension PkOrF: Equatable, Hashable {}
+
+
+
 
 
 
@@ -15828,11 +15923,14 @@ extension PsbtError: Equatable, Hashable {}
 
 
 
+
 extension PsbtError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -15927,11 +16025,14 @@ extension PsbtFinalizeError: Equatable, Hashable {}
 
 
 
+
 extension PsbtFinalizeError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16010,11 +16111,91 @@ extension PsbtParseError: Equatable, Hashable {}
 
 
 
+
 extension PsbtParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum RecoveryPoint {
+    
+    case genesisBlock
+    case segwitActivation
+    case taprootActivation
+}
+
+
+#if compiler(>=6)
+extension RecoveryPoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryPoint: FfiConverterRustBuffer {
+    typealias SwiftType = RecoveryPoint
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryPoint {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .genesisBlock
+        
+        case 2: return .segwitActivation
+        
+        case 3: return .taprootActivation
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RecoveryPoint, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .genesisBlock:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .segwitActivation:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .taprootActivation:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryPoint_lift(_ buf: RustBuffer) throws -> RecoveryPoint {
+    return try FfiConverterTypeRecoveryPoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryPoint_lower(_ value: RecoveryPoint) -> RustBuffer {
+    return FfiConverterTypeRecoveryPoint.lower(value)
+}
+
+
+extension RecoveryPoint: Equatable, Hashable {}
+
+
+
+
 
 
 
@@ -16079,11 +16260,14 @@ extension RequestBuilderError: Equatable, Hashable {}
 
 
 
+
 extension RequestBuilderError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -16184,6 +16368,9 @@ public func FfiConverterTypeSatisfaction_lower(_ value: Satisfaction) -> RustBuf
 
 
 extension Satisfaction: Equatable, Hashable {}
+
+
+
 
 
 
@@ -16340,21 +16527,17 @@ public func FfiConverterTypeSatisfiableItem_lower(_ value: SatisfiableItem) -> R
 
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Sync a wallet from the last known block hash, recover a wallet from a specified height,
- * or perform an expedited block header download for a new wallet.
+ * Sync a wallet from the last known block hash or recover a wallet from a specified recovery
+ * point.
  */
 
 public enum ScanType {
     
-    /**
-     * Perform an expedited header and filter download for a new wallet.
-     * If this option is not set, and the wallet has no history, the
-     * entire chain will be scanned for script inclusions.
-     */
-    case new
     /**
      * Sync an existing wallet from the last stored chain checkpoint.
      */
@@ -16362,7 +16545,14 @@ public enum ScanType {
     /**
      * Recover an existing wallet by scanning from the specified height.
      */
-    case recovery(fromHeight: UInt32
+    case recovery(
+        /**
+         * The estimated number of scripts the user has revealed for the wallet being recovered.
+         * If unknown, a conservative estimate, say 1,000, could be used.
+         */usedScriptIndex: UInt32, 
+        /**
+         * A relevant starting point or soft fork to start the sync.
+         */checkpoint: RecoveryPoint
     )
 }
 
@@ -16381,11 +16571,9 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .new
+        case 1: return .sync
         
-        case 2: return .sync
-        
-        case 3: return .recovery(fromHeight: try FfiConverterUInt32.read(from: &buf)
+        case 2: return .recovery(usedScriptIndex: try FfiConverterUInt32.read(from: &buf), checkpoint: try FfiConverterTypeRecoveryPoint.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -16396,17 +16584,14 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
         switch value {
         
         
-        case .new:
+        case .sync:
             writeInt(&buf, Int32(1))
         
         
-        case .sync:
+        case let .recovery(usedScriptIndex,checkpoint):
             writeInt(&buf, Int32(2))
-        
-        
-        case let .recovery(fromHeight):
-            writeInt(&buf, Int32(3))
-            FfiConverterUInt32.write(fromHeight, into: &buf)
+            FfiConverterUInt32.write(usedScriptIndex, into: &buf)
+            FfiConverterTypeRecoveryPoint.write(checkpoint, into: &buf)
             
         }
     }
@@ -16429,6 +16614,9 @@ public func FfiConverterTypeScanType_lower(_ value: ScanType) -> RustBuffer {
 
 
 extension ScanType: Equatable, Hashable {}
+
+
+
 
 
 
@@ -16614,11 +16802,14 @@ extension SignerError: Equatable, Hashable {}
 
 
 
+
 extension SignerError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16729,11 +16920,14 @@ extension TransactionError: Equatable, Hashable {}
 
 
 
+
 extension TransactionError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16802,11 +16996,14 @@ extension TxidParseError: Equatable, Hashable {}
 
 
 
+
 extension TxidParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -16842,33 +17039,14 @@ public enum Warning {
      */
     case unsolicitedMessage
     /**
-     * The provided starting height is deeper than the database history.
-     * This should not occur under normal use.
-     */
-    case invalidStartHeight
-    /**
-     * The headers in the database do not link together.
-     * Recoverable by deleting the database.
-     */
-    case corruptedHeaders
-    /**
      * A transaction got rejected, likely for being an insufficient fee or non-standard transaction.
      */
     case transactionRejected(wtxid: String, reason: String?
     )
     /**
-     * A database failed to persist some data and may retry again
-     */
-    case failedPersistence(warning: String
-    )
-    /**
      * The peer sent us a potential fork.
      */
     case evaluatingFork
-    /**
-     * The peer database has no values.
-     */
-    case emptyPeerDatabase
     /**
      * An unexpected error occurred processing a peer-to-peer message.
      */
@@ -16907,24 +17085,15 @@ public struct FfiConverterTypeWarning: FfiConverterRustBuffer {
         
         case 6: return .unsolicitedMessage
         
-        case 7: return .invalidStartHeight
-        
-        case 8: return .corruptedHeaders
-        
-        case 9: return .transactionRejected(wtxid: try FfiConverterString.read(from: &buf), reason: try FfiConverterOptionString.read(from: &buf)
+        case 7: return .transactionRejected(wtxid: try FfiConverterString.read(from: &buf), reason: try FfiConverterOptionString.read(from: &buf)
         )
         
-        case 10: return .failedPersistence(warning: try FfiConverterString.read(from: &buf)
+        case 8: return .evaluatingFork
+        
+        case 9: return .unexpectedSyncError(warning: try FfiConverterString.read(from: &buf)
         )
         
-        case 11: return .evaluatingFork
-        
-        case 12: return .emptyPeerDatabase
-        
-        case 13: return .unexpectedSyncError(warning: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 14: return .requestFailed
+        case 10: return .requestFailed
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -16958,40 +17127,23 @@ public struct FfiConverterTypeWarning: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
         
         
-        case .invalidStartHeight:
-            writeInt(&buf, Int32(7))
-        
-        
-        case .corruptedHeaders:
-            writeInt(&buf, Int32(8))
-        
-        
         case let .transactionRejected(wtxid,reason):
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(7))
             FfiConverterString.write(wtxid, into: &buf)
             FfiConverterOptionString.write(reason, into: &buf)
             
         
-        case let .failedPersistence(warning):
-            writeInt(&buf, Int32(10))
-            FfiConverterString.write(warning, into: &buf)
-            
-        
         case .evaluatingFork:
-            writeInt(&buf, Int32(11))
-        
-        
-        case .emptyPeerDatabase:
-            writeInt(&buf, Int32(12))
+            writeInt(&buf, Int32(8))
         
         
         case let .unexpectedSyncError(warning):
-            writeInt(&buf, Int32(13))
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(warning, into: &buf)
             
         
         case .requestFailed:
-            writeInt(&buf, Int32(14))
+            writeInt(&buf, Int32(10))
         
         }
     }
@@ -17014,6 +17166,9 @@ public func FfiConverterTypeWarning_lower(_ value: Warning) -> RustBuffer {
 
 
 extension Warning: Equatable, Hashable {}
+
+
+
 
 
 
@@ -17102,6 +17257,9 @@ public func FfiConverterTypeWordCount_lower(_ value: WordCount) -> RustBuffer {
 
 
 extension WordCount: Equatable, Hashable {}
+
+
+
 
 
 
@@ -17936,6 +18094,31 @@ fileprivate struct FfiConverterSequenceTypeCondition: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeEvictedTx: FfiConverterRustBuffer {
+    typealias SwiftType = [EvictedTx]
+
+    public static func write(_ value: [EvictedTx], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEvictedTx.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EvictedTx] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EvictedTx]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEvictedTx.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLocalOutput: FfiConverterRustBuffer {
     typealias SwiftType = [LocalOutput]
 
@@ -18440,7 +18623,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_version() != 18790) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 49355) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 4783) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_configure_timeout_millis() != 41120) {
@@ -18452,12 +18635,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfbuilder_data_dir() != 31903) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_dns_resolver() != 20074) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_log_level() != 53476) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_peers() != 54701) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18467,13 +18644,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfbuilder_socks5_proxy() != 50836) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_add_revealed_scripts() != 52140) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_bdkffi_checksum_method_cbfclient_average_fee_rate() != 26767) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 8491) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 56213) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_connect() != 2287) {
@@ -18482,16 +18656,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfclient_is_running() != 22584) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 26923) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 27293) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_min_broadcast_feerate() != 31908) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 22000) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_log() != 8685) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 61206) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_next_warning() != 38083) {
@@ -18522,6 +18693,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_changeset_tx_graph_changeset() != 51559) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptor_desc_type() != 22274) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptor_descriptor_id() != 35226) {
@@ -18770,6 +18944,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_txbuilder_drain_wallet() != 21886) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_below_confirmations() != 24447) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_unconfirmed() != 30391) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_txbuilder_fee_absolute() != 6920) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18807,6 +18987,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_txid_serialize() != 15501) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs() != 47441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs() != 61391) {
@@ -19070,7 +19253,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_constructor_txid_from_string() != 39405) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 21534) {
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_from_two_path_descriptor() != 35837) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_single() != 50616) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 23009) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_wallet_new() != 39177) {
