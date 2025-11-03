@@ -395,7 +395,13 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 
 
 // Public interface members begin here.
-
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1498,7 +1504,7 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
     /**
      * Construct a [`CbfComponents`] for a [`Wallet`].
      */
-    func build(wallet: Wallet) throws  -> CbfComponents
+    func build(wallet: Wallet)  -> CbfComponents
     
     /**
      * Configure the time in milliseconds that a node has to:
@@ -1517,18 +1523,6 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
      * working directory will be used.
      */
     func dataDir(dataDir: String)  -> CbfBuilder
-    
-    /**
-     * Configure a custom DNS resolver when querying DNS seeds. Default is `1.1.1.1` managed by
-     * CloudFlare.
-     */
-    func dnsResolver(dnsResolver: IpAddress)  -> CbfBuilder
-    
-    /**
-     * Set the log level for the node. Production applications may want to omit `Debug` messages
-     * to avoid heap allocations.
-     */
-    func logLevel(logLevel: LogLevel)  -> CbfBuilder
     
     /**
      * Bitcoin full-nodes to attempt a connection with.
@@ -1628,8 +1622,8 @@ public convenience init() {
     /**
      * Construct a [`CbfComponents`] for a [`Wallet`].
      */
-open func build(wallet: Wallet)throws  -> CbfComponents  {
-    return try  FfiConverterTypeCbfComponents_lift(try rustCallWithError(FfiConverterTypeCbfBuilderError_lift) {
+open func build(wallet: Wallet) -> CbfComponents  {
+    return try!  FfiConverterTypeCbfComponents_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_cbfbuilder_build(self.uniffiClonePointer(),
         FfiConverterTypeWallet_lower(wallet),$0
     )
@@ -1669,30 +1663,6 @@ open func dataDir(dataDir: String) -> CbfBuilder  {
     return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_cbfbuilder_data_dir(self.uniffiClonePointer(),
         FfiConverterString.lower(dataDir),$0
-    )
-})
-}
-    
-    /**
-     * Configure a custom DNS resolver when querying DNS seeds. Default is `1.1.1.1` managed by
-     * CloudFlare.
-     */
-open func dnsResolver(dnsResolver: IpAddress) -> CbfBuilder  {
-    return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
-    uniffi_bdkffi_fn_method_cbfbuilder_dns_resolver(self.uniffiClonePointer(),
-        FfiConverterTypeIpAddress_lower(dnsResolver),$0
-    )
-})
-}
-    
-    /**
-     * Set the log level for the node. Production applications may want to omit `Debug` messages
-     * to avoid heap allocations.
-     */
-open func logLevel(logLevel: LogLevel) -> CbfBuilder  {
-    return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
-    uniffi_bdkffi_fn_method_cbfbuilder_log_level(self.uniffiClonePointer(),
-        FfiConverterTypeLogLevel_lower(logLevel),$0
     )
 })
 }
@@ -1796,14 +1766,6 @@ public func FfiConverterTypeCbfBuilder_lower(_ value: CbfBuilder) -> UnsafeMutab
 public protocol CbfClientProtocol: AnyObject, Sendable {
     
     /**
-     * Add scripts for the node to watch for as they are revealed. Typically used after creating
-     * a transaction or revealing a receive address.
-     *
-     * Note that only future blocks will be checked for these scripts, not past blocks.
-     */
-    func addRevealedScripts(wallet: Wallet) throws 
-    
-    /**
      * Fetch the average fee rate for a block by requesting it from a peer. Not recommend for
      * resource-limited devices.
      */
@@ -1812,7 +1774,7 @@ public protocol CbfClientProtocol: AnyObject, Sendable {
     /**
      * Broadcast a transaction to the network, erroring if the node has stopped running.
      */
-    func broadcast(transaction: Transaction) throws 
+    func broadcast(transaction: Transaction) async throws  -> Wtxid
     
     /**
      * Add another [`Peer`] to attempt a connection with.
@@ -1831,19 +1793,17 @@ public protocol CbfClientProtocol: AnyObject, Sendable {
      * for compact block filter nodes from the seeder. For example `dns.myseeder.com` will be queried
      * as `x849.dns.myseeder.com`. This has no guarantee to return any `IpAddr`.
      */
-    func lookupHost(hostname: String) async  -> [IpAddress]
+    func lookupHost(hostname: String)  -> [IpAddress]
     
     /**
      * The minimum fee rate required to broadcast a transcation to all connected peers.
      */
     func minBroadcastFeerate() async throws  -> FeeRate
     
-    func nextInfo() async throws  -> Info
-    
     /**
-     * Return the next available log message from a node. If none is returned, the node has stopped.
+     * Return the next available info message from a node. If none is returned, the node has stopped.
      */
-    func nextLog() async throws  -> String
+    func nextInfo() async throws  -> Info
     
     /**
      * Return the next available warning message from a node. If none is returned, the node has stopped.
@@ -1918,19 +1878,6 @@ open class CbfClient: CbfClientProtocol, @unchecked Sendable {
 
     
     /**
-     * Add scripts for the node to watch for as they are revealed. Typically used after creating
-     * a transaction or revealing a receive address.
-     *
-     * Note that only future blocks will be checked for these scripts, not past blocks.
-     */
-open func addRevealedScripts(wallet: Wallet)throws   {try rustCallWithError(FfiConverterTypeCbfError_lift) {
-    uniffi_bdkffi_fn_method_cbfclient_add_revealed_scripts(self.uniffiClonePointer(),
-        FfiConverterTypeWallet_lower(wallet),$0
-    )
-}
-}
-    
-    /**
      * Fetch the average fee rate for a block by requesting it from a peer. Not recommend for
      * resource-limited devices.
      */
@@ -1954,11 +1901,21 @@ open func averageFeeRate(blockhash: BlockHash)async throws  -> FeeRate  {
     /**
      * Broadcast a transaction to the network, erroring if the node has stopped running.
      */
-open func broadcast(transaction: Transaction)throws   {try rustCallWithError(FfiConverterTypeCbfError_lift) {
-    uniffi_bdkffi_fn_method_cbfclient_broadcast(self.uniffiClonePointer(),
-        FfiConverterTypeTransaction_lower(transaction),$0
-    )
-}
+open func broadcast(transaction: Transaction)async throws  -> Wtxid  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_bdkffi_fn_method_cbfclient_broadcast(
+                    self.uniffiClonePointer(),
+                    FfiConverterTypeTransaction_lower(transaction)
+                )
+            },
+            pollFunc: ffi_bdkffi_rust_future_poll_pointer,
+            completeFunc: ffi_bdkffi_rust_future_complete_pointer,
+            freeFunc: ffi_bdkffi_rust_future_free_pointer,
+            liftFunc: FfiConverterTypeWtxid_lift,
+            errorHandler: FfiConverterTypeCbfError_lift
+        )
 }
     
     /**
@@ -1988,22 +1945,12 @@ open func isRunning() -> Bool  {
      * for compact block filter nodes from the seeder. For example `dns.myseeder.com` will be queried
      * as `x849.dns.myseeder.com`. This has no guarantee to return any `IpAddr`.
      */
-open func lookupHost(hostname: String)async  -> [IpAddress]  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_bdkffi_fn_method_cbfclient_lookup_host(
-                    self.uniffiClonePointer(),
-                    FfiConverterString.lower(hostname)
-                )
-            },
-            pollFunc: ffi_bdkffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterSequenceTypeIpAddress.lift,
-            errorHandler: nil
-            
-        )
+open func lookupHost(hostname: String) -> [IpAddress]  {
+    return try!  FfiConverterSequenceTypeIpAddress.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_cbfclient_lookup_host(self.uniffiClonePointer(),
+        FfiConverterString.lower(hostname),$0
+    )
+})
 }
     
     /**
@@ -2026,6 +1973,9 @@ open func minBroadcastFeerate()async throws  -> FeeRate  {
         )
 }
     
+    /**
+     * Return the next available info message from a node. If none is returned, the node has stopped.
+     */
 open func nextInfo()async throws  -> Info  {
     return
         try  await uniffiRustCallAsync(
@@ -2039,26 +1989,6 @@ open func nextInfo()async throws  -> Info  {
             completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
             freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeInfo_lift,
-            errorHandler: FfiConverterTypeCbfError_lift
-        )
-}
-    
-    /**
-     * Return the next available log message from a node. If none is returned, the node has stopped.
-     */
-open func nextLog()async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_bdkffi_fn_method_cbfclient_next_log(
-                    self.uniffiClonePointer()
-                    
-                )
-            },
-            pollFunc: ffi_bdkffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_bdkffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_bdkffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeCbfError_lift
         )
 }
@@ -2596,6 +2526,22 @@ public func FfiConverterTypeChangeSet_lower(_ value: ChangeSet) -> UnsafeMutable
  */
 public protocol DerivationPathProtocol: AnyObject, Sendable {
     
+    /**
+     * Returns `true` if the derivation path is empty
+     */
+    func isEmpty()  -> Bool
+    
+    /**
+     * Returns whether derivation path represents master key (i.e. it's length
+     * is empty). True for `m` path.
+     */
+    func isMaster()  -> Bool
+    
+    /**
+     * Returns length of the derivation path
+     */
+    func len()  -> UInt64
+    
 }
 /**
  * A BIP-32 derivation path.
@@ -2661,10 +2607,60 @@ public convenience init(path: String)throws  {
     }
 
     
-
+    /**
+     * Returns derivation path for a master key (i.e. empty derivation path)
+     */
+public static func master() -> DerivationPath  {
+    return try!  FfiConverterTypeDerivationPath_lift(try! rustCall() {
+    uniffi_bdkffi_fn_constructor_derivationpath_master($0
+    )
+})
+}
     
 
+    
+    /**
+     * Returns `true` if the derivation path is empty
+     */
+open func isEmpty() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_derivationpath_is_empty(self.uniffiClonePointer(),$0
+    )
+})
 }
+    
+    /**
+     * Returns whether derivation path represents master key (i.e. it's length
+     * is empty). True for `m` path.
+     */
+open func isMaster() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_derivationpath_is_master(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Returns length of the derivation path
+     */
+open func len() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_derivationpath_len(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    open var description: String {
+        return try!  FfiConverterString.lift(
+            try! rustCall() {
+    uniffi_bdkffi_fn_method_derivationpath_uniffi_trait_display(self.uniffiClonePointer(),$0
+    )
+}
+        )
+    }
+
+}
+extension DerivationPath: CustomStringConvertible {}
 
 
 #if swift(>=5.8)
@@ -2725,6 +2721,8 @@ public func FfiConverterTypeDerivationPath_lower(_ value: DerivationPath) -> Uns
  * An expression of how to derive output scripts: https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md
  */
 public protocol DescriptorProtocol: AnyObject, Sendable {
+    
+    func descType()  -> DescriptorType
     
     /**
      * A unique identifier for the descriptor.
@@ -2834,8 +2832,8 @@ public static func newBip44(secretKey: DescriptorSecretKey, keychainKind: Keycha
     /**
      * Multi-account hierarchy descriptor: https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki
      */
-public static func newBip44Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network) -> Descriptor  {
-    return try!  FfiConverterTypeDescriptor_lift(try! rustCall() {
+public static func newBip44Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
     uniffi_bdkffi_fn_constructor_descriptor_new_bip44_public(
         FfiConverterTypeDescriptorPublicKey_lower(publicKey),
         FfiConverterString.lower(fingerprint),
@@ -2861,8 +2859,8 @@ public static func newBip49(secretKey: DescriptorSecretKey, keychainKind: Keycha
     /**
      * P2SH nested P2WSH descriptor: https://github.com/bitcoin/bips/blob/master/bip-0049.mediawiki
      */
-public static func newBip49Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network) -> Descriptor  {
-    return try!  FfiConverterTypeDescriptor_lift(try! rustCall() {
+public static func newBip49Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
     uniffi_bdkffi_fn_constructor_descriptor_new_bip49_public(
         FfiConverterTypeDescriptorPublicKey_lower(publicKey),
         FfiConverterString.lower(fingerprint),
@@ -2888,8 +2886,8 @@ public static func newBip84(secretKey: DescriptorSecretKey, keychainKind: Keycha
     /**
      * Pay to witness PKH descriptor: https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki
      */
-public static func newBip84Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network) -> Descriptor  {
-    return try!  FfiConverterTypeDescriptor_lift(try! rustCall() {
+public static func newBip84Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
     uniffi_bdkffi_fn_constructor_descriptor_new_bip84_public(
         FfiConverterTypeDescriptorPublicKey_lower(publicKey),
         FfiConverterString.lower(fingerprint),
@@ -2915,8 +2913,8 @@ public static func newBip86(secretKey: DescriptorSecretKey, keychainKind: Keycha
     /**
      * Single key P2TR descriptor: https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki
      */
-public static func newBip86Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network) -> Descriptor  {
-    return try!  FfiConverterTypeDescriptor_lift(try! rustCall() {
+public static func newBip86Public(publicKey: DescriptorPublicKey, fingerprint: String, keychainKind: KeychainKind, network: Network)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
     uniffi_bdkffi_fn_constructor_descriptor_new_bip86_public(
         FfiConverterTypeDescriptorPublicKey_lower(publicKey),
         FfiConverterString.lower(fingerprint),
@@ -2927,6 +2925,13 @@ public static func newBip86Public(publicKey: DescriptorPublicKey, fingerprint: S
 }
     
 
+    
+open func descType() -> DescriptorType  {
+    return try!  FfiConverterTypeDescriptorType_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptor_desc_type(self.uniffiClonePointer(),$0
+    )
+})
+}
     
     /**
      * A unique identifier for the descriptor.
@@ -4757,13 +4762,7 @@ open func inspect(keychain: KeychainKind, index: UInt32, script: Script)  {try! 
     
 
 }
-// Magic number for the Rust proxy to call using the same mechanism as every other method,
-// to free the callback once it's dropped by Rust.
-private let IDX_CALLBACK_FREE: Int32 = 0
-// Callback return codes
-private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
-private let UNIFFI_CALLBACK_ERROR: Int32 = 1
-private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
 fileprivate struct UniffiCallbackInterfaceFullScanScriptInspector {
@@ -5961,6 +5960,11 @@ public protocol PsbtProtocol: AnyObject, Sendable {
     func finalize()  -> FinalizedPsbtResult
     
     /**
+     * The corresponding key-value map for each input in the unsigned transaction.
+     */
+    func input()  -> [Input]
+    
+    /**
      * Serializes the PSBT into a JSON string representation.
      */
     func jsonSerialize()  -> String
@@ -6129,6 +6133,16 @@ open func fee()throws  -> UInt64  {
 open func finalize() -> FinalizedPsbtResult  {
     return try!  FfiConverterTypeFinalizedPsbtResult_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_psbt_finalize(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * The corresponding key-value map for each input in the unsigned transaction.
+     */
+open func input() -> [Input]  {
+    return try!  FfiConverterSequenceTypeInput.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_psbt_input(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -6319,8 +6333,17 @@ open func toBytes() -> Data  {
 })
 }
     
+    open var description: String {
+        return try!  FfiConverterString.lift(
+            try! rustCall() {
+    uniffi_bdkffi_fn_method_script_uniffi_trait_display(self.uniffiClonePointer(),$0
+    )
+}
+        )
+    }
 
 }
+extension Script: CustomStringConvertible {}
 
 
 #if swift(>=5.8)
@@ -7336,6 +7359,28 @@ public protocol TxBuilderProtocol: AnyObject, Sendable {
     func drainWallet()  -> TxBuilder
     
     /**
+     * Excludes any outpoints whose enclosing transaction has fewer than `min_confirms`
+     * confirmations.
+     *
+     * `min_confirms` is the minimum number of confirmations a transaction must have in order for
+     * its outpoints to remain spendable.
+     * - Passing `0` will include all transactions (no filtering).
+     * - Passing `1` will exclude all unconfirmed transactions (equivalent to
+     * `exclude_unconfirmed`).
+     * - Passing `6` will only allow outpoints from transactions with at least 6 confirmations.
+     *
+     * If you chain this with other filtering methods, the final set of unspendable outpoints will
+     * be the union of all filters.
+     */
+    func excludeBelowConfirmations(minConfirms: UInt32)  -> TxBuilder
+    
+    /**
+     * Exclude outpoints whose enclosing transaction is unconfirmed.
+     * This is a shorthand for exclude_below_confirmations(1).
+     */
+    func excludeUnconfirmed()  -> TxBuilder
+    
+    /**
      * Set an absolute fee The `fee_absolute` method refers to the absolute transaction fee in `Amount`. If anyone sets
      * both the `fee_absolute` method and the `fee_rate` method, the `FeePolicy` enum will be set by whichever method was
      * called last, as the `FeeRate` and `FeeAmount` are mutually exclusive.
@@ -7648,6 +7693,39 @@ open func drainTo(script: Script) -> TxBuilder  {
 open func drainWallet() -> TxBuilder  {
     return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
     uniffi_bdkffi_fn_method_txbuilder_drain_wallet(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Excludes any outpoints whose enclosing transaction has fewer than `min_confirms`
+     * confirmations.
+     *
+     * `min_confirms` is the minimum number of confirmations a transaction must have in order for
+     * its outpoints to remain spendable.
+     * - Passing `0` will include all transactions (no filtering).
+     * - Passing `1` will exclude all unconfirmed transactions (equivalent to
+     * `exclude_unconfirmed`).
+     * - Passing `6` will only allow outpoints from transactions with at least 6 confirmations.
+     *
+     * If you chain this with other filtering methods, the final set of unspendable outpoints will
+     * be the union of all filters.
+     */
+open func excludeBelowConfirmations(minConfirms: UInt32) -> TxBuilder  {
+    return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_exclude_below_confirmations(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(minConfirms),$0
+    )
+})
+}
+    
+    /**
+     * Exclude outpoints whose enclosing transaction is unconfirmed.
+     * This is a shorthand for exclude_below_confirmations(1).
+     */
+open func excludeUnconfirmed() -> TxBuilder  {
+    return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_exclude_unconfirmed(self.uniffiClonePointer(),$0
     )
 })
 }
@@ -8369,6 +8447,15 @@ public func FfiConverterTypeUpdate_lower(_ value: Update) -> UnsafeMutableRawPoi
 public protocol WalletProtocol: AnyObject, Sendable {
     
     /**
+     * Apply transactions that have been evicted from the mempool.
+     * Transactions may be evicted for paying too-low fee, or for being malformed.
+     * Irrelevant transactions are ignored.
+     *
+     * For more information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.Wallet.html#method.apply_evicted_txs
+     */
+    func applyEvictedTxs(evictedTxs: [EvictedTx]) 
+    
+    /**
      * Apply relevant unconfirmed transactions to the wallet.
      * Transactions that are not relevant are filtered out.
      */
@@ -8469,6 +8556,27 @@ public protocol WalletProtocol: AnyObject, Sendable {
      * wallet's database.
      */
     func getUtxo(op: OutPoint)  -> LocalOutput?
+    
+    /**
+     * Inserts a [`TxOut`] at [`OutPoint`] into the wallet's transaction graph.
+     *
+     * This is used for providing a previous output's value so that we can use [`calculate_fee`]
+     * or [`calculate_fee_rate`] on a given transaction. Outputs inserted with this method will
+     * not be returned in [`list_unspent`] or [`list_output`].
+     *
+     * **WARNINGS:** This should only be used to add `TxOut`s that the wallet does not own. Only
+     * insert `TxOut`s that you trust the values for!
+     *
+     * You must persist the changes resulting from one or more calls to this method if you need
+     * the inserted `TxOut` data to be reloaded after closing the wallet.
+     * See [`Wallet::reveal_next_address`].
+     *
+     * [`calculate_fee`]: Self::calculate_fee
+     * [`calculate_fee_rate`]: Self::calculate_fee_rate
+     * [`list_unspent`]: Self::list_unspent
+     * [`list_output`]: Self::list_output
+     */
+    func insertTxout(outpoint: OutPoint, txout: TxOut) 
     
     /**
      * Return whether or not a `script` is part of this wallet (either internal or external).
@@ -8611,6 +8719,11 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func sign(psbt: Psbt, signOptions: SignOptions?) throws  -> Bool
     
     /**
+     * Get a reference of the staged [`ChangeSet`] that is yet to be committed (if any).
+     */
+    func staged()  -> ChangeSet?
+    
+    /**
      * Create a [`FullScanRequest] for this wallet.
      *
      * This is the first step when performing a spk-based wallet full scan, the returned
@@ -8632,6 +8745,11 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func startSyncWithRevealedSpks()  -> SyncRequestBuilder
     
     /**
+     * Take the staged [`ChangeSet`] to be persisted now (if any).
+     */
+    func takeStaged()  -> ChangeSet?
+    
+    /**
      * Iterate over the transactions in the wallet.
      */
     func transactions()  -> [CanonicalTx]
@@ -8640,6 +8758,18 @@ public protocol WalletProtocol: AnyObject, Sendable {
      * Get the [`TxDetails`] of a wallet transaction.
      */
     func txDetails(txid: Txid)  -> TxDetails?
+    
+    /**
+     * Undoes the effect of [`mark_used`] and returns whether the `index` was inserted
+     * back into the unused set.
+     *
+     * Since this is only a superficial marker, it will have no effect if the address at the given
+     * `index` was actually used, i.e. the wallet has previously indexed a tx output for the
+     * derived spk.
+     *
+     * [`mark_used`]: Self::mark_used
+     */
+    func unmarkUsed(keychain: KeychainKind, index: UInt32)  -> Bool
     
 }
 /**
@@ -8724,19 +8854,104 @@ public convenience init(descriptor: Descriptor, changeDescriptor: Descriptor, ne
 
     
     /**
-     * Build Wallet by loading from persistence.
+     * Build a new `Wallet` from a two-path descriptor.
+     *
+     * This function parses a multipath descriptor with exactly 2 paths and creates a wallet using the existing receive and change wallet creation logic.
+     *
+     * Multipath descriptors follow [BIP-389](https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki) and allow defining both receive and change derivation paths in a single descriptor using the <0;1> syntax.
+     *
+     * If you have previously created a wallet, use load instead.
+     *
+     * Returns an error if the descriptor is invalid or not a 2-path multipath descriptor.
      */
-public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, persister: Persister)throws  -> Wallet  {
+public static func createFromTwoPathDescriptor(twoPathDescriptor: Descriptor, network: Network, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_from_two_path_descriptor(
+        FfiConverterTypeDescriptor_lower(twoPathDescriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a new single descriptor `Wallet`.
+     *
+     * If you have previously created a wallet, use `Wallet::load` instead.
+     *
+     * # Note
+     *
+     * Only use this method when creating a wallet designed to be used with a single
+     * descriptor and keychain. Otherwise the recommended way to construct a new wallet is
+     * by using `Wallet::new`. It's worth noting that not all features are available
+     * with single descriptor wallets, for example setting a `change_policy` on `TxBuilder`
+     * and related methods such as `do_not_spend_change`. This is because all payments are
+     * received on the external keychain (including change), and without a change keychain
+     * BDK lacks enough information to distinguish between change and outside payments.
+     *
+     * Additionally because this wallet has no internal (change) keychain, all methods that
+     * require a `KeychainKind` as input, e.g. `reveal_next_address` should only be called
+     * using the `External` variant. In most cases passing `Internal` is treated as the
+     * equivalent of `External` but this behavior must not be relied on.
+     */
+public static func createSingle(descriptor: Descriptor, network: Network, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_single(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build Wallet by loading from persistence.
+     *
+     * Note that the descriptor secret keys are not persisted to the db.
+     */
+public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
     return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
     uniffi_bdkffi_fn_constructor_wallet_load(
         FfiConverterTypeDescriptor_lower(descriptor),
         FfiConverterTypeDescriptor_lower(changeDescriptor),
-        FfiConverterTypePersister_lower(persister),$0
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a single-descriptor Wallet by loading from persistence.
+     *
+     * Note that the descriptor secret keys are not persisted to the db.
+     */
+public static func loadSingle(descriptor: Descriptor, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_load_single(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
     )
 })
 }
     
 
+    
+    /**
+     * Apply transactions that have been evicted from the mempool.
+     * Transactions may be evicted for paying too-low fee, or for being malformed.
+     * Irrelevant transactions are ignored.
+     *
+     * For more information: https://docs.rs/bdk_wallet/latest/bdk_wallet/struct.Wallet.html#method.apply_evicted_txs
+     */
+open func applyEvictedTxs(evictedTxs: [EvictedTx])  {try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_apply_evicted_txs(self.uniffiClonePointer(),
+        FfiConverterSequenceTypeEvictedTx.lower(evictedTxs),$0
+    )
+}
+}
     
     /**
      * Apply relevant unconfirmed transactions to the wallet.
@@ -8907,6 +9122,33 @@ open func getUtxo(op: OutPoint) -> LocalOutput?  {
         FfiConverterTypeOutPoint_lower(op),$0
     )
 })
+}
+    
+    /**
+     * Inserts a [`TxOut`] at [`OutPoint`] into the wallet's transaction graph.
+     *
+     * This is used for providing a previous output's value so that we can use [`calculate_fee`]
+     * or [`calculate_fee_rate`] on a given transaction. Outputs inserted with this method will
+     * not be returned in [`list_unspent`] or [`list_output`].
+     *
+     * **WARNINGS:** This should only be used to add `TxOut`s that the wallet does not own. Only
+     * insert `TxOut`s that you trust the values for!
+     *
+     * You must persist the changes resulting from one or more calls to this method if you need
+     * the inserted `TxOut` data to be reloaded after closing the wallet.
+     * See [`Wallet::reveal_next_address`].
+     *
+     * [`calculate_fee`]: Self::calculate_fee
+     * [`calculate_fee_rate`]: Self::calculate_fee_rate
+     * [`list_unspent`]: Self::list_unspent
+     * [`list_output`]: Self::list_output
+     */
+open func insertTxout(outpoint: OutPoint, txout: TxOut)  {try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_insert_txout(self.uniffiClonePointer(),
+        FfiConverterTypeOutPoint_lower(outpoint),
+        FfiConverterTypeTxOut_lower(txout),$0
+    )
+}
 }
     
     /**
@@ -9152,6 +9394,16 @@ open func sign(psbt: Psbt, signOptions: SignOptions? = nil)throws  -> Bool  {
 }
     
     /**
+     * Get a reference of the staged [`ChangeSet`] that is yet to be committed (if any).
+     */
+open func staged() -> ChangeSet?  {
+    return try!  FfiConverterOptionTypeChangeSet.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_staged(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Create a [`FullScanRequest] for this wallet.
      *
      * This is the first step when performing a spk-based wallet full scan, the returned
@@ -9183,6 +9435,16 @@ open func startSyncWithRevealedSpks() -> SyncRequestBuilder  {
 }
     
     /**
+     * Take the staged [`ChangeSet`] to be persisted now (if any).
+     */
+open func takeStaged() -> ChangeSet?  {
+    return try!  FfiConverterOptionTypeChangeSet.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_take_staged(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Iterate over the transactions in the wallet.
      */
 open func transactions() -> [CanonicalTx]  {
@@ -9199,6 +9461,25 @@ open func txDetails(txid: Txid) -> TxDetails?  {
     return try!  FfiConverterOptionTypeTxDetails.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_tx_details(self.uniffiClonePointer(),
         FfiConverterTypeTxid_lower(txid),$0
+    )
+})
+}
+    
+    /**
+     * Undoes the effect of [`mark_used`] and returns whether the `index` was inserted
+     * back into the unused set.
+     *
+     * Since this is only a superficial marker, it will have no effect if the address at the given
+     * `index` was actually used, i.e. the wallet has previously indexed a tx output for the
+     * derived spk.
+     *
+     * [`mark_used`]: Self::mark_used
+     */
+open func unmarkUsed(keychain: KeychainKind, index: UInt32) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_unmark_used(self.uniffiClonePointer(),
+        FfiConverterTypeKeychainKind_lower(keychain),
+        FfiConverterUInt32.lower(index),$0
     )
 })
 }
@@ -10108,6 +10389,173 @@ public func FfiConverterTypeConfirmationBlockTime_lower(_ value: ConfirmationBlo
 }
 
 
+public struct ControlBlock {
+    /**
+     * The internal key.
+     */
+    public var internalKey: Data
+    /**
+     * The merkle proof of a script associated with this leaf.
+     */
+    public var merkleBranch: [String]
+    /**
+     * The parity of the output key (NOT THE INTERNAL KEY WHICH IS ALWAYS XONLY).
+     */
+    public var outputKeyParity: UInt8
+    /**
+     * The tapleaf version.
+     */
+    public var leafVersion: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The internal key.
+         */internalKey: Data, 
+        /**
+         * The merkle proof of a script associated with this leaf.
+         */merkleBranch: [String], 
+        /**
+         * The parity of the output key (NOT THE INTERNAL KEY WHICH IS ALWAYS XONLY).
+         */outputKeyParity: UInt8, 
+        /**
+         * The tapleaf version.
+         */leafVersion: UInt8) {
+        self.internalKey = internalKey
+        self.merkleBranch = merkleBranch
+        self.outputKeyParity = outputKeyParity
+        self.leafVersion = leafVersion
+    }
+}
+
+#if compiler(>=6)
+extension ControlBlock: Sendable {}
+#endif
+
+
+extension ControlBlock: Equatable, Hashable {
+    public static func ==(lhs: ControlBlock, rhs: ControlBlock) -> Bool {
+        if lhs.internalKey != rhs.internalKey {
+            return false
+        }
+        if lhs.merkleBranch != rhs.merkleBranch {
+            return false
+        }
+        if lhs.outputKeyParity != rhs.outputKeyParity {
+            return false
+        }
+        if lhs.leafVersion != rhs.leafVersion {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(internalKey)
+        hasher.combine(merkleBranch)
+        hasher.combine(outputKeyParity)
+        hasher.combine(leafVersion)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeControlBlock: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ControlBlock {
+        return
+            try ControlBlock(
+                internalKey: FfiConverterData.read(from: &buf), 
+                merkleBranch: FfiConverterSequenceString.read(from: &buf), 
+                outputKeyParity: FfiConverterUInt8.read(from: &buf), 
+                leafVersion: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ControlBlock, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.internalKey, into: &buf)
+        FfiConverterSequenceString.write(value.merkleBranch, into: &buf)
+        FfiConverterUInt8.write(value.outputKeyParity, into: &buf)
+        FfiConverterUInt8.write(value.leafVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeControlBlock_lift(_ buf: RustBuffer) throws -> ControlBlock {
+    return try FfiConverterTypeControlBlock.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeControlBlock_lower(_ value: ControlBlock) -> RustBuffer {
+    return FfiConverterTypeControlBlock.lower(value)
+}
+
+
+/**
+ * This type replaces the Rust tuple `(txid, evicted_at)` used in the Wallet::apply_evicted_txs` method,
+ * where `evicted_at` is the timestamp of when the transaction `txid` was evicted from the mempool.
+ * Transactions may be evicted for paying a low fee rate or having invalid scripts.
+ */
+public struct EvictedTx {
+    public var txid: Txid
+    public var evictedAt: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(txid: Txid, evictedAt: UInt64) {
+        self.txid = txid
+        self.evictedAt = evictedAt
+    }
+}
+
+#if compiler(>=6)
+extension EvictedTx: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEvictedTx: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EvictedTx {
+        return
+            try EvictedTx(
+                txid: FfiConverterTypeTxid.read(from: &buf), 
+                evictedAt: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EvictedTx, into buf: inout [UInt8]) {
+        FfiConverterTypeTxid.write(value.txid, into: &buf)
+        FfiConverterUInt64.write(value.evictedAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvictedTx_lift(_ buf: RustBuffer) throws -> EvictedTx {
+    return try FfiConverterTypeEvictedTx.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvictedTx_lower(_ value: EvictedTx) -> RustBuffer {
+    return FfiConverterTypeEvictedTx.lower(value)
+}
+
+
 public struct FinalizedPsbtResult {
     public var psbt: Psbt
     public var couldFinalize: Bool
@@ -10388,6 +10836,429 @@ public func FfiConverterTypeIndexerChangeSet_lift(_ buf: RustBuffer) throws -> I
 #endif
 public func FfiConverterTypeIndexerChangeSet_lower(_ value: IndexerChangeSet) -> RustBuffer {
     return FfiConverterTypeIndexerChangeSet.lower(value)
+}
+
+
+/**
+ * A key-value map for an input of the corresponding index in the unsigned transaction.
+ */
+public struct Input {
+    /**
+     * The non-witness transaction this input spends from. Should only be
+     * `Option::Some` for inputs which spend non-segwit outputs or
+     * if it is unknown whether an input spends a segwit output.
+     */
+    public var nonWitnessUtxo: Transaction?
+    /**
+     * The transaction output this input spends from. Should only be
+     * `Option::Some` for inputs which spend segwit outputs,
+     * including P2SH embedded ones.
+     */
+    public var witnessUtxo: TxOut?
+    /**
+     * A map from public keys to their corresponding signature as would be
+     * pushed to the stack from a scriptSig or witness for a non-taproot inputs.
+     */
+    public var partialSigs: [String: Data]
+    /**
+     * The sighash type to be used for this input. Signatures for this input
+     * must use the sighash type.
+     */
+    public var sighashType: String?
+    /**
+     * The redeem script for this input.
+     */
+    public var redeemScript: Script?
+    /**
+     * The witness script for this input.
+     */
+    public var witnessScript: Script?
+    /**
+     * A map from public keys needed to sign this input to their corresponding
+     * master key fingerprints and derivation paths.
+     */
+    public var bip32Derivation: [String: KeySource]
+    /**
+     * The finalized, fully-constructed scriptSig with signatures and any other
+     * scripts necessary for this input to pass validation.
+     */
+    public var finalScriptSig: Script?
+    /**
+     * The finalized, fully-constructed scriptWitness with signatures and any
+     * other scripts necessary for this input to pass validation.
+     */
+    public var finalScriptWitness: [Data]?
+    /**
+     * RIPEMD160 hash to preimage map.
+     */
+    public var ripemd160Preimages: [String: Data]
+    /**
+     * SHA256 hash to preimage map.
+     */
+    public var sha256Preimages: [String: Data]
+    /**
+     * HASH160 hash to preimage map.
+     */
+    public var hash160Preimages: [String: Data]
+    /**
+     * HASH256 hash to preimage map.
+     */
+    public var hash256Preimages: [String: Data]
+    /**
+     * Serialized taproot signature with sighash type for key spend.
+     */
+    public var tapKeySig: Data?
+    /**
+     * Map of `<xonlypubkey>|<leafhash>` with signature.
+     */
+    public var tapScriptSigs: [TapScriptSigKey: Data]
+    /**
+     * Map of Control blocks to Script version pair.
+     */
+    public var tapScripts: [ControlBlock: TapScriptEntry]
+    /**
+     * Map of tap root x only keys to origin info and leaf hashes contained in it.
+     */
+    public var tapKeyOrigins: [String: TapKeyOrigin]
+    /**
+     * Taproot Internal key.
+     */
+    public var tapInternalKey: String?
+    /**
+     * Taproot Merkle root.
+     */
+    public var tapMerkleRoot: String?
+    /**
+     * Proprietary key-value pairs for this input.
+     */
+    public var proprietary: [ProprietaryKey: Data]
+    /**
+     * Unknown key-value pairs for this input.
+     */
+    public var unknown: [Key: Data]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The non-witness transaction this input spends from. Should only be
+         * `Option::Some` for inputs which spend non-segwit outputs or
+         * if it is unknown whether an input spends a segwit output.
+         */nonWitnessUtxo: Transaction?, 
+        /**
+         * The transaction output this input spends from. Should only be
+         * `Option::Some` for inputs which spend segwit outputs,
+         * including P2SH embedded ones.
+         */witnessUtxo: TxOut?, 
+        /**
+         * A map from public keys to their corresponding signature as would be
+         * pushed to the stack from a scriptSig or witness for a non-taproot inputs.
+         */partialSigs: [String: Data], 
+        /**
+         * The sighash type to be used for this input. Signatures for this input
+         * must use the sighash type.
+         */sighashType: String?, 
+        /**
+         * The redeem script for this input.
+         */redeemScript: Script?, 
+        /**
+         * The witness script for this input.
+         */witnessScript: Script?, 
+        /**
+         * A map from public keys needed to sign this input to their corresponding
+         * master key fingerprints and derivation paths.
+         */bip32Derivation: [String: KeySource], 
+        /**
+         * The finalized, fully-constructed scriptSig with signatures and any other
+         * scripts necessary for this input to pass validation.
+         */finalScriptSig: Script?, 
+        /**
+         * The finalized, fully-constructed scriptWitness with signatures and any
+         * other scripts necessary for this input to pass validation.
+         */finalScriptWitness: [Data]?, 
+        /**
+         * RIPEMD160 hash to preimage map.
+         */ripemd160Preimages: [String: Data], 
+        /**
+         * SHA256 hash to preimage map.
+         */sha256Preimages: [String: Data], 
+        /**
+         * HASH160 hash to preimage map.
+         */hash160Preimages: [String: Data], 
+        /**
+         * HASH256 hash to preimage map.
+         */hash256Preimages: [String: Data], 
+        /**
+         * Serialized taproot signature with sighash type for key spend.
+         */tapKeySig: Data?, 
+        /**
+         * Map of `<xonlypubkey>|<leafhash>` with signature.
+         */tapScriptSigs: [TapScriptSigKey: Data], 
+        /**
+         * Map of Control blocks to Script version pair.
+         */tapScripts: [ControlBlock: TapScriptEntry], 
+        /**
+         * Map of tap root x only keys to origin info and leaf hashes contained in it.
+         */tapKeyOrigins: [String: TapKeyOrigin], 
+        /**
+         * Taproot Internal key.
+         */tapInternalKey: String?, 
+        /**
+         * Taproot Merkle root.
+         */tapMerkleRoot: String?, 
+        /**
+         * Proprietary key-value pairs for this input.
+         */proprietary: [ProprietaryKey: Data], 
+        /**
+         * Unknown key-value pairs for this input.
+         */unknown: [Key: Data]) {
+        self.nonWitnessUtxo = nonWitnessUtxo
+        self.witnessUtxo = witnessUtxo
+        self.partialSigs = partialSigs
+        self.sighashType = sighashType
+        self.redeemScript = redeemScript
+        self.witnessScript = witnessScript
+        self.bip32Derivation = bip32Derivation
+        self.finalScriptSig = finalScriptSig
+        self.finalScriptWitness = finalScriptWitness
+        self.ripemd160Preimages = ripemd160Preimages
+        self.sha256Preimages = sha256Preimages
+        self.hash160Preimages = hash160Preimages
+        self.hash256Preimages = hash256Preimages
+        self.tapKeySig = tapKeySig
+        self.tapScriptSigs = tapScriptSigs
+        self.tapScripts = tapScripts
+        self.tapKeyOrigins = tapKeyOrigins
+        self.tapInternalKey = tapInternalKey
+        self.tapMerkleRoot = tapMerkleRoot
+        self.proprietary = proprietary
+        self.unknown = unknown
+    }
+}
+
+#if compiler(>=6)
+extension Input: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Input {
+        return
+            try Input(
+                nonWitnessUtxo: FfiConverterOptionTypeTransaction.read(from: &buf), 
+                witnessUtxo: FfiConverterOptionTypeTxOut.read(from: &buf), 
+                partialSigs: FfiConverterDictionaryStringData.read(from: &buf), 
+                sighashType: FfiConverterOptionString.read(from: &buf), 
+                redeemScript: FfiConverterOptionTypeScript.read(from: &buf), 
+                witnessScript: FfiConverterOptionTypeScript.read(from: &buf), 
+                bip32Derivation: FfiConverterDictionaryStringTypeKeySource.read(from: &buf), 
+                finalScriptSig: FfiConverterOptionTypeScript.read(from: &buf), 
+                finalScriptWitness: FfiConverterOptionSequenceData.read(from: &buf), 
+                ripemd160Preimages: FfiConverterDictionaryStringData.read(from: &buf), 
+                sha256Preimages: FfiConverterDictionaryStringData.read(from: &buf), 
+                hash160Preimages: FfiConverterDictionaryStringData.read(from: &buf), 
+                hash256Preimages: FfiConverterDictionaryStringData.read(from: &buf), 
+                tapKeySig: FfiConverterOptionData.read(from: &buf), 
+                tapScriptSigs: FfiConverterDictionaryTypeTapScriptSigKeyData.read(from: &buf), 
+                tapScripts: FfiConverterDictionaryTypeControlBlockTypeTapScriptEntry.read(from: &buf), 
+                tapKeyOrigins: FfiConverterDictionaryStringTypeTapKeyOrigin.read(from: &buf), 
+                tapInternalKey: FfiConverterOptionString.read(from: &buf), 
+                tapMerkleRoot: FfiConverterOptionString.read(from: &buf), 
+                proprietary: FfiConverterDictionaryTypeProprietaryKeyData.read(from: &buf), 
+                unknown: FfiConverterDictionaryTypeKeyData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Input, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeTransaction.write(value.nonWitnessUtxo, into: &buf)
+        FfiConverterOptionTypeTxOut.write(value.witnessUtxo, into: &buf)
+        FfiConverterDictionaryStringData.write(value.partialSigs, into: &buf)
+        FfiConverterOptionString.write(value.sighashType, into: &buf)
+        FfiConverterOptionTypeScript.write(value.redeemScript, into: &buf)
+        FfiConverterOptionTypeScript.write(value.witnessScript, into: &buf)
+        FfiConverterDictionaryStringTypeKeySource.write(value.bip32Derivation, into: &buf)
+        FfiConverterOptionTypeScript.write(value.finalScriptSig, into: &buf)
+        FfiConverterOptionSequenceData.write(value.finalScriptWitness, into: &buf)
+        FfiConverterDictionaryStringData.write(value.ripemd160Preimages, into: &buf)
+        FfiConverterDictionaryStringData.write(value.sha256Preimages, into: &buf)
+        FfiConverterDictionaryStringData.write(value.hash160Preimages, into: &buf)
+        FfiConverterDictionaryStringData.write(value.hash256Preimages, into: &buf)
+        FfiConverterOptionData.write(value.tapKeySig, into: &buf)
+        FfiConverterDictionaryTypeTapScriptSigKeyData.write(value.tapScriptSigs, into: &buf)
+        FfiConverterDictionaryTypeControlBlockTypeTapScriptEntry.write(value.tapScripts, into: &buf)
+        FfiConverterDictionaryStringTypeTapKeyOrigin.write(value.tapKeyOrigins, into: &buf)
+        FfiConverterOptionString.write(value.tapInternalKey, into: &buf)
+        FfiConverterOptionString.write(value.tapMerkleRoot, into: &buf)
+        FfiConverterDictionaryTypeProprietaryKeyData.write(value.proprietary, into: &buf)
+        FfiConverterDictionaryTypeKeyData.write(value.unknown, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInput_lift(_ buf: RustBuffer) throws -> Input {
+    return try FfiConverterTypeInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInput_lower(_ value: Input) -> RustBuffer {
+    return FfiConverterTypeInput.lower(value)
+}
+
+
+public struct Key {
+    /**
+     * The type of this PSBT key.
+     */
+    public var typeValue: UInt8
+    /**
+     * The key itself in raw byte form.
+     * `<key> := <keylen> <keytype> <keydata>`
+     */
+    public var key: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The type of this PSBT key.
+         */typeValue: UInt8, 
+        /**
+         * The key itself in raw byte form.
+         * `<key> := <keylen> <keytype> <keydata>`
+         */key: Data) {
+        self.typeValue = typeValue
+        self.key = key
+    }
+}
+
+#if compiler(>=6)
+extension Key: Sendable {}
+#endif
+
+
+extension Key: Equatable, Hashable {
+    public static func ==(lhs: Key, rhs: Key) -> Bool {
+        if lhs.typeValue != rhs.typeValue {
+            return false
+        }
+        if lhs.key != rhs.key {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(typeValue)
+        hasher.combine(key)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Key {
+        return
+            try Key(
+                typeValue: FfiConverterUInt8.read(from: &buf), 
+                key: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Key, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.typeValue, into: &buf)
+        FfiConverterData.write(value.key, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKey_lift(_ buf: RustBuffer) throws -> Key {
+    return try FfiConverterTypeKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKey_lower(_ value: Key) -> RustBuffer {
+    return FfiConverterTypeKey.lower(value)
+}
+
+
+public struct KeySource {
+    /**
+     * A fingerprint
+     */
+    public var fingerprint: String
+    /**
+     * A BIP-32 derivation path.
+     */
+    public var path: DerivationPath
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A fingerprint
+         */fingerprint: String, 
+        /**
+         * A BIP-32 derivation path.
+         */path: DerivationPath) {
+        self.fingerprint = fingerprint
+        self.path = path
+    }
+}
+
+#if compiler(>=6)
+extension KeySource: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeySource: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeySource {
+        return
+            try KeySource(
+                fingerprint: FfiConverterString.read(from: &buf), 
+                path: FfiConverterTypeDerivationPath.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeySource, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.fingerprint, into: &buf)
+        FfiConverterTypeDerivationPath.write(value.path, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeySource_lift(_ buf: RustBuffer) throws -> KeySource {
+    return try FfiConverterTypeKeySource.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeySource_lower(_ value: KeySource) -> RustBuffer {
+    return FfiConverterTypeKeySource.lower(value)
 }
 
 
@@ -10777,6 +11648,104 @@ public func FfiConverterTypePeer_lift(_ buf: RustBuffer) throws -> Peer {
 #endif
 public func FfiConverterTypePeer_lower(_ value: Peer) -> RustBuffer {
     return FfiConverterTypePeer.lower(value)
+}
+
+
+public struct ProprietaryKey {
+    /**
+     * Proprietary type prefix used for grouping together keys under some
+     * application and avoid namespace collision
+     */
+    public var prefix: Data
+    /**
+     * Custom proprietary subtype
+     */
+    public var subtype: UInt8
+    /**
+     * Additional key bytes (like serialized public key data etc)
+     */
+    public var key: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Proprietary type prefix used for grouping together keys under some
+         * application and avoid namespace collision
+         */prefix: Data, 
+        /**
+         * Custom proprietary subtype
+         */subtype: UInt8, 
+        /**
+         * Additional key bytes (like serialized public key data etc)
+         */key: Data) {
+        self.prefix = prefix
+        self.subtype = subtype
+        self.key = key
+    }
+}
+
+#if compiler(>=6)
+extension ProprietaryKey: Sendable {}
+#endif
+
+
+extension ProprietaryKey: Equatable, Hashable {
+    public static func ==(lhs: ProprietaryKey, rhs: ProprietaryKey) -> Bool {
+        if lhs.prefix != rhs.prefix {
+            return false
+        }
+        if lhs.subtype != rhs.subtype {
+            return false
+        }
+        if lhs.key != rhs.key {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(prefix)
+        hasher.combine(subtype)
+        hasher.combine(key)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProprietaryKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProprietaryKey {
+        return
+            try ProprietaryKey(
+                prefix: FfiConverterData.read(from: &buf), 
+                subtype: FfiConverterUInt8.read(from: &buf), 
+                key: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProprietaryKey, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.prefix, into: &buf)
+        FfiConverterUInt8.write(value.subtype, into: &buf)
+        FfiConverterData.write(value.key, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProprietaryKey_lift(_ buf: RustBuffer) throws -> ProprietaryKey {
+    return try FfiConverterTypeProprietaryKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProprietaryKey_lower(_ value: ProprietaryKey) -> RustBuffer {
+    return FfiConverterTypeProprietaryKey.lower(value)
 }
 
 
@@ -11281,6 +12250,218 @@ public func FfiConverterTypeSocks5Proxy_lift(_ buf: RustBuffer) throws -> Socks5
 #endif
 public func FfiConverterTypeSocks5Proxy_lower(_ value: Socks5Proxy) -> RustBuffer {
     return FfiConverterTypeSocks5Proxy.lower(value)
+}
+
+
+public struct TapKeyOrigin {
+    /**
+     * leaf hashes as hex strings
+     */
+    public var tapLeafHashes: [String]
+    /**
+     * key source
+     */
+    public var keySource: KeySource
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * leaf hashes as hex strings
+         */tapLeafHashes: [String], 
+        /**
+         * key source
+         */keySource: KeySource) {
+        self.tapLeafHashes = tapLeafHashes
+        self.keySource = keySource
+    }
+}
+
+#if compiler(>=6)
+extension TapKeyOrigin: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTapKeyOrigin: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TapKeyOrigin {
+        return
+            try TapKeyOrigin(
+                tapLeafHashes: FfiConverterSequenceString.read(from: &buf), 
+                keySource: FfiConverterTypeKeySource.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TapKeyOrigin, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.tapLeafHashes, into: &buf)
+        FfiConverterTypeKeySource.write(value.keySource, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapKeyOrigin_lift(_ buf: RustBuffer) throws -> TapKeyOrigin {
+    return try FfiConverterTypeTapKeyOrigin.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapKeyOrigin_lower(_ value: TapKeyOrigin) -> RustBuffer {
+    return FfiConverterTypeTapKeyOrigin.lower(value)
+}
+
+
+public struct TapScriptEntry {
+    /**
+     * script (reuse existing `Script` FFI type)
+     */
+    public var script: Script
+    /**
+     * leaf version
+     */
+    public var leafVersion: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * script (reuse existing `Script` FFI type)
+         */script: Script, 
+        /**
+         * leaf version
+         */leafVersion: UInt8) {
+        self.script = script
+        self.leafVersion = leafVersion
+    }
+}
+
+#if compiler(>=6)
+extension TapScriptEntry: Sendable {}
+#endif
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTapScriptEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TapScriptEntry {
+        return
+            try TapScriptEntry(
+                script: FfiConverterTypeScript.read(from: &buf), 
+                leafVersion: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TapScriptEntry, into buf: inout [UInt8]) {
+        FfiConverterTypeScript.write(value.script, into: &buf)
+        FfiConverterUInt8.write(value.leafVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapScriptEntry_lift(_ buf: RustBuffer) throws -> TapScriptEntry {
+    return try FfiConverterTypeTapScriptEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapScriptEntry_lower(_ value: TapScriptEntry) -> RustBuffer {
+    return FfiConverterTypeTapScriptEntry.lower(value)
+}
+
+
+public struct TapScriptSigKey {
+    /**
+     * An x-only public key, used for verification of Taproot signatures and serialized according to BIP-340.
+     */
+    public var xonlyPubkey: String
+    /**
+     * Taproot-tagged hash with tag "TapLeaf".
+     * This is used for computing tapscript script spend hash.
+     */
+    public var tapLeafHash: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * An x-only public key, used for verification of Taproot signatures and serialized according to BIP-340.
+         */xonlyPubkey: String, 
+        /**
+         * Taproot-tagged hash with tag "TapLeaf".
+         * This is used for computing tapscript script spend hash.
+         */tapLeafHash: String) {
+        self.xonlyPubkey = xonlyPubkey
+        self.tapLeafHash = tapLeafHash
+    }
+}
+
+#if compiler(>=6)
+extension TapScriptSigKey: Sendable {}
+#endif
+
+
+extension TapScriptSigKey: Equatable, Hashable {
+    public static func ==(lhs: TapScriptSigKey, rhs: TapScriptSigKey) -> Bool {
+        if lhs.xonlyPubkey != rhs.xonlyPubkey {
+            return false
+        }
+        if lhs.tapLeafHash != rhs.tapLeafHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(xonlyPubkey)
+        hasher.combine(tapLeafHash)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTapScriptSigKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TapScriptSigKey {
+        return
+            try TapScriptSigKey(
+                xonlyPubkey: FfiConverterString.read(from: &buf), 
+                tapLeafHash: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TapScriptSigKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.xonlyPubkey, into: &buf)
+        FfiConverterString.write(value.tapLeafHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapScriptSigKey_lift(_ buf: RustBuffer) throws -> TapScriptSigKey {
+    return try FfiConverterTypeTapScriptSigKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTapScriptSigKey_lower(_ value: TapScriptSigKey) -> RustBuffer {
+    return FfiConverterTypeTapScriptSigKey.lower(value)
 }
 
 
@@ -12028,6 +13209,9 @@ extension AddressData: Equatable, Hashable {}
 
 
 
+
+
+
 public enum AddressParseError: Swift.Error {
 
     
@@ -12151,11 +13335,14 @@ extension AddressParseError: Equatable, Hashable {}
 
 
 
+
 extension AddressParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12312,11 +13499,14 @@ extension Bip32Error: Equatable, Hashable {}
 
 
 
+
 extension Bip32Error: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12421,11 +13611,14 @@ extension Bip39Error: Equatable, Hashable {}
 
 
 
+
 extension Bip39Error: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -12510,6 +13703,8 @@ extension CalculateFeeError: Foundation.LocalizedError {
 
 
 
+
+
 public enum CannotConnectError: Swift.Error {
 
     
@@ -12575,6 +13770,7 @@ extension CannotConnectError: Equatable, Hashable {}
 
 
 
+
 extension CannotConnectError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
@@ -12582,77 +13778,6 @@ extension CannotConnectError: Foundation.LocalizedError {
 }
 
 
-
-public enum CbfBuilderError: Swift.Error {
-
-    
-    
-    case DatabaseError(reason: String
-    )
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCbfBuilderError: FfiConverterRustBuffer {
-    typealias SwiftType = CbfBuilderError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CbfBuilderError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .DatabaseError(
-            reason: try FfiConverterString.read(from: &buf)
-            )
-
-         default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: CbfBuilderError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        
-        case let .DatabaseError(reason):
-            writeInt(&buf, Int32(1))
-            FfiConverterString.write(reason, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCbfBuilderError_lift(_ buf: RustBuffer) throws -> CbfBuilderError {
-    return try FfiConverterTypeCbfBuilderError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCbfBuilderError_lower(_ value: CbfBuilderError) -> RustBuffer {
-    return FfiConverterTypeCbfBuilderError.lower(value)
-}
-
-
-extension CbfBuilderError: Equatable, Hashable {}
-
-
-
-extension CbfBuilderError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
 
 
 
@@ -12717,11 +13842,14 @@ extension CbfError: Equatable, Hashable {}
 
 
 
+
 extension CbfError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -12810,6 +13938,8 @@ public func FfiConverterTypeChainPosition_lower(_ value: ChainPosition) -> RustB
 
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -12893,6 +14023,9 @@ public func FfiConverterTypeChangeSpendPolicy_lower(_ value: ChangeSpendPolicy) 
 
 
 extension ChangeSpendPolicy: Equatable, Hashable {}
+
+
+
 
 
 
@@ -13150,11 +14283,14 @@ extension CreateTxError: Equatable, Hashable {}
 
 
 
+
 extension CreateTxError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13239,11 +14375,14 @@ extension CreateWithPersistError: Equatable, Hashable {}
 
 
 
+
 extension CreateWithPersistError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13412,11 +14551,14 @@ extension DescriptorError: Equatable, Hashable {}
 
 
 
+
 extension DescriptorError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13501,11 +14643,183 @@ extension DescriptorKeyError: Equatable, Hashable {}
 
 
 
+
 extension DescriptorKeyError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Descriptor Type of the descriptor
+ */
+
+public enum DescriptorType {
+    
+    /**
+     * Bare descriptor(Contains the native P2pk)
+     */
+    case bare
+    /**
+     * Pure Sh Descriptor. Does not contain nested Wsh/Wpkh
+     */
+    case sh
+    /**
+     * Pkh Descriptor
+     */
+    case pkh
+    /**
+     * Wpkh Descriptor
+     */
+    case wpkh
+    /**
+     * Wsh
+     */
+    case wsh
+    /**
+     * Sh Wrapped Wsh
+     */
+    case shWsh
+    /**
+     * Sh wrapped Wpkh
+     */
+    case shWpkh
+    /**
+     * Sh Sorted Multi
+     */
+    case shSortedMulti
+    /**
+     * Wsh Sorted Multi
+     */
+    case wshSortedMulti
+    /**
+     * Sh Wsh Sorted Multi
+     */
+    case shWshSortedMulti
+    /**
+     * Tr Descriptor
+     */
+    case tr
+}
+
+
+#if compiler(>=6)
+extension DescriptorType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDescriptorType: FfiConverterRustBuffer {
+    typealias SwiftType = DescriptorType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DescriptorType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .bare
+        
+        case 2: return .sh
+        
+        case 3: return .pkh
+        
+        case 4: return .wpkh
+        
+        case 5: return .wsh
+        
+        case 6: return .shWsh
+        
+        case 7: return .shWpkh
+        
+        case 8: return .shSortedMulti
+        
+        case 9: return .wshSortedMulti
+        
+        case 10: return .shWshSortedMulti
+        
+        case 11: return .tr
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DescriptorType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .bare:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .sh:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .pkh:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .wpkh:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .wsh:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .shWsh:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .shWpkh:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .shSortedMulti:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .wshSortedMulti:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .shWshSortedMulti:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .tr:
+            writeInt(&buf, Int32(11))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDescriptorType_lift(_ buf: RustBuffer) throws -> DescriptorType {
+    return try FfiConverterTypeDescriptorType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDescriptorType_lower(_ value: DescriptorType) -> RustBuffer {
+    return FfiConverterTypeDescriptorType.lower(value)
+}
+
+
+extension DescriptorType: Equatable, Hashable {}
+
+
+
+
 
 
 
@@ -13706,11 +15020,14 @@ extension ElectrumError: Equatable, Hashable {}
 
 
 
+
 extension ElectrumError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13895,11 +15212,14 @@ extension EsploraError: Equatable, Hashable {}
 
 
 
+
 extension EsploraError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -13986,11 +15306,14 @@ extension ExtractTxError: Equatable, Hashable {}
 
 
 
+
 extension ExtractTxError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14055,11 +15378,14 @@ extension FeeRateError: Equatable, Hashable {}
 
 
 
+
 extension FeeRateError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14150,11 +15476,14 @@ extension FromScriptError: Equatable, Hashable {}
 
 
 
+
 extension FromScriptError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -14233,11 +15562,14 @@ extension HashParseError: Equatable, Hashable {}
 
 
 
+
 extension HashParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -14257,30 +15589,20 @@ public enum Info {
      */
     case successfulHandshake
     /**
-     * The block header chain of most work was extended to this height.
-     */
-    case newChainHeight(height: UInt32
-    )
-    /**
-     * A new fork was advertised to the node, but has not been selected yet.
-     */
-    case newFork(height: UInt32
-    )
-    /**
      * A percentage value of filters that have been scanned.
      */
-    case progress(progress: Float
+    case progress(
+        /**
+         * The height of the local block chain.
+         */chainHeight: UInt32, 
+        /**
+         * The percent of filters downloaded.
+         */filtersDownloadedPercent: Float
     )
     /**
-     * A state in the node syncing process.
+     * A relevant block was downloaded from a peer.
      */
-    case stateUpdate(nodeState: NodeState
-    )
-    /**
-     * A transaction was broadcast over the wire to a peer that requested it from our inventory.
-     * The transaction may or may not be rejected by recipient nodes.
-     */
-    case txGossiped(wtxid: String
+    case blockReceived(String
     )
 }
 
@@ -14303,19 +15625,10 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
         
         case 2: return .successfulHandshake
         
-        case 3: return .newChainHeight(height: try FfiConverterUInt32.read(from: &buf)
+        case 3: return .progress(chainHeight: try FfiConverterUInt32.read(from: &buf), filtersDownloadedPercent: try FfiConverterFloat.read(from: &buf)
         )
         
-        case 4: return .newFork(height: try FfiConverterUInt32.read(from: &buf)
-        )
-        
-        case 5: return .progress(progress: try FfiConverterFloat.read(from: &buf)
-        )
-        
-        case 6: return .stateUpdate(nodeState: try FfiConverterTypeNodeState.read(from: &buf)
-        )
-        
-        case 7: return .txGossiped(wtxid: try FfiConverterString.read(from: &buf)
+        case 4: return .blockReceived(try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -14334,29 +15647,15 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case let .newChainHeight(height):
+        case let .progress(chainHeight,filtersDownloadedPercent):
             writeInt(&buf, Int32(3))
-            FfiConverterUInt32.write(height, into: &buf)
+            FfiConverterUInt32.write(chainHeight, into: &buf)
+            FfiConverterFloat.write(filtersDownloadedPercent, into: &buf)
             
         
-        case let .newFork(height):
+        case let .blockReceived(v1):
             writeInt(&buf, Int32(4))
-            FfiConverterUInt32.write(height, into: &buf)
-            
-        
-        case let .progress(progress):
-            writeInt(&buf, Int32(5))
-            FfiConverterFloat.write(progress, into: &buf)
-            
-        
-        case let .stateUpdate(nodeState):
-            writeInt(&buf, Int32(6))
-            FfiConverterTypeNodeState.write(nodeState, into: &buf)
-            
-        
-        case let .txGossiped(wtxid):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(wtxid, into: &buf)
+            FfiConverterString.write(v1, into: &buf)
             
         }
     }
@@ -14379,6 +15678,9 @@ public func FfiConverterTypeInfo_lower(_ value: Info) -> RustBuffer {
 
 
 extension Info: Equatable, Hashable {}
+
+
+
 
 
 
@@ -14455,6 +15757,9 @@ public func FfiConverterTypeKeychainKind_lower(_ value: KeychainKind) -> RustBuf
 
 
 extension KeychainKind: Equatable, Hashable {}
+
+
+
 
 
 
@@ -14540,11 +15845,14 @@ extension LoadWithPersistError: Equatable, Hashable {}
 
 
 
+
 extension LoadWithPersistError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -14620,91 +15928,6 @@ extension LockTime: Equatable, Hashable {}
 
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * Select the category of messages for the node to emit.
- */
-
-public enum LogLevel {
-    
-    /**
-     * Send string messages. These messages are intended for debugging or troubleshooting
-     * node operation.
-     */
-    case debug
-    /**
-     * Send info and warning messages, but omit debug strings - including their memory allocations.
-     * Ideal for a production application that uses minimal logging.
-     */
-    case info
-    /**
-     * Omit debug strings and info messages, including their memory allocations.
-     */
-    case warning
-}
-
-
-#if compiler(>=6)
-extension LogLevel: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLogLevel: FfiConverterRustBuffer {
-    typealias SwiftType = LogLevel
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LogLevel {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .debug
-        
-        case 2: return .info
-        
-        case 3: return .warning
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: LogLevel, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .debug:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .info:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .warning:
-            writeInt(&buf, Int32(3))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLogLevel_lift(_ buf: RustBuffer) throws -> LogLevel {
-    return try FfiConverterTypeLogLevel.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
-    return FfiConverterTypeLogLevel.lower(value)
-}
-
-
-extension LogLevel: Equatable, Hashable {}
 
 
 
@@ -15062,6 +16285,7 @@ extension MiniscriptError: Equatable, Hashable {}
 
 
 
+
 extension MiniscriptError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
@@ -15069,16 +16293,29 @@ extension MiniscriptError: Foundation.LocalizedError {
 }
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The cryptocurrency network to act on.
+ *
+ * This is an exhaustive enum, meaning that we cannot add any future networks without defining a
+ * new, incompatible version of this type. If you are using this type directly and wish to support
+ * the new network, this will be a breaking change to your APIs and likely require changes in your
+ * code.
+ *
+ * If you are concerned about forward compatibility, consider using T: Into<Params> instead of this
+ * type as a parameter to functions in your public API, or directly using the Params type.
+ */
 
 public enum Network {
     
     case bitcoin
     case testnet
+    case testnet4
     case signet
     case regtest
-    case testnet4
 }
 
 
@@ -15100,11 +16337,11 @@ public struct FfiConverterTypeNetwork: FfiConverterRustBuffer {
         
         case 2: return .testnet
         
-        case 3: return .signet
+        case 3: return .testnet4
         
-        case 4: return .regtest
+        case 4: return .signet
         
-        case 5: return .testnet4
+        case 5: return .regtest
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -15122,15 +16359,15 @@ public struct FfiConverterTypeNetwork: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .signet:
+        case .testnet4:
             writeInt(&buf, Int32(3))
         
         
-        case .regtest:
+        case .signet:
             writeInt(&buf, Int32(4))
         
         
-        case .testnet4:
+        case .regtest:
             writeInt(&buf, Int32(5))
         
         }
@@ -15157,109 +16394,6 @@ extension Network: Equatable, Hashable {}
 
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * The state of the node with respect to connected peers.
- */
-
-public enum NodeState {
-    
-    /**
-     * We are behind on block headers according to our peers.
-     */
-    case behind
-    /**
-     * We may start downloading compact block filter headers.
-     */
-    case headersSynced
-    /**
-     * We may start scanning compact block filters.
-     */
-    case filterHeadersSynced
-    /**
-     * We may start asking for blocks with matches.
-     */
-    case filtersSynced
-    /**
-     * We found all known transactions to the wallet.
-     */
-    case transactionsSynced
-}
-
-
-#if compiler(>=6)
-extension NodeState: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeNodeState: FfiConverterRustBuffer {
-    typealias SwiftType = NodeState
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NodeState {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .behind
-        
-        case 2: return .headersSynced
-        
-        case 3: return .filterHeadersSynced
-        
-        case 4: return .filtersSynced
-        
-        case 5: return .transactionsSynced
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: NodeState, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .behind:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .headersSynced:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .filterHeadersSynced:
-            writeInt(&buf, Int32(3))
-        
-        
-        case .filtersSynced:
-            writeInt(&buf, Int32(4))
-        
-        
-        case .transactionsSynced:
-            writeInt(&buf, Int32(5))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNodeState_lift(_ buf: RustBuffer) throws -> NodeState {
-    return try FfiConverterTypeNodeState.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeNodeState_lower(_ value: NodeState) -> RustBuffer {
-    return FfiConverterTypeNodeState.lower(value)
-}
-
-
-extension NodeState: Equatable, Hashable {}
 
 
 
@@ -15359,11 +16493,14 @@ extension ParseAmountError: Equatable, Hashable {}
 
 
 
+
 extension ParseAmountError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -15432,11 +16569,14 @@ extension PersistenceError: Equatable, Hashable {}
 
 
 
+
 extension PersistenceError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -15519,6 +16659,9 @@ public func FfiConverterTypePkOrF_lower(_ value: PkOrF) -> RustBuffer {
 
 
 extension PkOrF: Equatable, Hashable {}
+
+
+
 
 
 
@@ -15828,11 +16971,14 @@ extension PsbtError: Equatable, Hashable {}
 
 
 
+
 extension PsbtError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -15927,11 +17073,14 @@ extension PsbtFinalizeError: Equatable, Hashable {}
 
 
 
+
 extension PsbtFinalizeError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16010,11 +17159,91 @@ extension PsbtParseError: Equatable, Hashable {}
 
 
 
+
 extension PsbtParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum RecoveryPoint {
+    
+    case genesisBlock
+    case segwitActivation
+    case taprootActivation
+}
+
+
+#if compiler(>=6)
+extension RecoveryPoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryPoint: FfiConverterRustBuffer {
+    typealias SwiftType = RecoveryPoint
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryPoint {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .genesisBlock
+        
+        case 2: return .segwitActivation
+        
+        case 3: return .taprootActivation
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RecoveryPoint, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .genesisBlock:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .segwitActivation:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .taprootActivation:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryPoint_lift(_ buf: RustBuffer) throws -> RecoveryPoint {
+    return try FfiConverterTypeRecoveryPoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryPoint_lower(_ value: RecoveryPoint) -> RustBuffer {
+    return FfiConverterTypeRecoveryPoint.lower(value)
+}
+
+
+extension RecoveryPoint: Equatable, Hashable {}
+
+
+
+
 
 
 
@@ -16079,11 +17308,14 @@ extension RequestBuilderError: Equatable, Hashable {}
 
 
 
+
 extension RequestBuilderError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -16184,6 +17416,9 @@ public func FfiConverterTypeSatisfaction_lower(_ value: Satisfaction) -> RustBuf
 
 
 extension Satisfaction: Equatable, Hashable {}
+
+
+
 
 
 
@@ -16340,21 +17575,17 @@ public func FfiConverterTypeSatisfiableItem_lower(_ value: SatisfiableItem) -> R
 
 
 
+
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Sync a wallet from the last known block hash, recover a wallet from a specified height,
- * or perform an expedited block header download for a new wallet.
+ * Sync a wallet from the last known block hash or recover a wallet from a specified recovery
+ * point.
  */
 
 public enum ScanType {
     
-    /**
-     * Perform an expedited header and filter download for a new wallet.
-     * If this option is not set, and the wallet has no history, the
-     * entire chain will be scanned for script inclusions.
-     */
-    case new
     /**
      * Sync an existing wallet from the last stored chain checkpoint.
      */
@@ -16362,7 +17593,14 @@ public enum ScanType {
     /**
      * Recover an existing wallet by scanning from the specified height.
      */
-    case recovery(fromHeight: UInt32
+    case recovery(
+        /**
+         * The estimated number of scripts the user has revealed for the wallet being recovered.
+         * If unknown, a conservative estimate, say 1,000, could be used.
+         */usedScriptIndex: UInt32, 
+        /**
+         * A relevant starting point or soft fork to start the sync.
+         */checkpoint: RecoveryPoint
     )
 }
 
@@ -16381,11 +17619,9 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .new
+        case 1: return .sync
         
-        case 2: return .sync
-        
-        case 3: return .recovery(fromHeight: try FfiConverterUInt32.read(from: &buf)
+        case 2: return .recovery(usedScriptIndex: try FfiConverterUInt32.read(from: &buf), checkpoint: try FfiConverterTypeRecoveryPoint.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -16396,17 +17632,14 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
         switch value {
         
         
-        case .new:
+        case .sync:
             writeInt(&buf, Int32(1))
         
         
-        case .sync:
+        case let .recovery(usedScriptIndex,checkpoint):
             writeInt(&buf, Int32(2))
-        
-        
-        case let .recovery(fromHeight):
-            writeInt(&buf, Int32(3))
-            FfiConverterUInt32.write(fromHeight, into: &buf)
+            FfiConverterUInt32.write(usedScriptIndex, into: &buf)
+            FfiConverterTypeRecoveryPoint.write(checkpoint, into: &buf)
             
         }
     }
@@ -16429,6 +17662,9 @@ public func FfiConverterTypeScanType_lower(_ value: ScanType) -> RustBuffer {
 
 
 extension ScanType: Equatable, Hashable {}
+
+
+
 
 
 
@@ -16614,11 +17850,14 @@ extension SignerError: Equatable, Hashable {}
 
 
 
+
 extension SignerError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16729,11 +17968,14 @@ extension TransactionError: Equatable, Hashable {}
 
 
 
+
 extension TransactionError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 
@@ -16802,11 +18044,14 @@ extension TxidParseError: Equatable, Hashable {}
 
 
 
+
 extension TxidParseError: Foundation.LocalizedError {
     public var errorDescription: String? {
         String(reflecting: self)
     }
 }
+
+
 
 
 // Note that we don't yet support `indirect` for enums.
@@ -16842,33 +18087,14 @@ public enum Warning {
      */
     case unsolicitedMessage
     /**
-     * The provided starting height is deeper than the database history.
-     * This should not occur under normal use.
-     */
-    case invalidStartHeight
-    /**
-     * The headers in the database do not link together.
-     * Recoverable by deleting the database.
-     */
-    case corruptedHeaders
-    /**
      * A transaction got rejected, likely for being an insufficient fee or non-standard transaction.
      */
     case transactionRejected(wtxid: String, reason: String?
     )
     /**
-     * A database failed to persist some data and may retry again
-     */
-    case failedPersistence(warning: String
-    )
-    /**
      * The peer sent us a potential fork.
      */
     case evaluatingFork
-    /**
-     * The peer database has no values.
-     */
-    case emptyPeerDatabase
     /**
      * An unexpected error occurred processing a peer-to-peer message.
      */
@@ -16907,24 +18133,15 @@ public struct FfiConverterTypeWarning: FfiConverterRustBuffer {
         
         case 6: return .unsolicitedMessage
         
-        case 7: return .invalidStartHeight
-        
-        case 8: return .corruptedHeaders
-        
-        case 9: return .transactionRejected(wtxid: try FfiConverterString.read(from: &buf), reason: try FfiConverterOptionString.read(from: &buf)
+        case 7: return .transactionRejected(wtxid: try FfiConverterString.read(from: &buf), reason: try FfiConverterOptionString.read(from: &buf)
         )
         
-        case 10: return .failedPersistence(warning: try FfiConverterString.read(from: &buf)
+        case 8: return .evaluatingFork
+        
+        case 9: return .unexpectedSyncError(warning: try FfiConverterString.read(from: &buf)
         )
         
-        case 11: return .evaluatingFork
-        
-        case 12: return .emptyPeerDatabase
-        
-        case 13: return .unexpectedSyncError(warning: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 14: return .requestFailed
+        case 10: return .requestFailed
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -16958,40 +18175,23 @@ public struct FfiConverterTypeWarning: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
         
         
-        case .invalidStartHeight:
-            writeInt(&buf, Int32(7))
-        
-        
-        case .corruptedHeaders:
-            writeInt(&buf, Int32(8))
-        
-        
         case let .transactionRejected(wtxid,reason):
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(7))
             FfiConverterString.write(wtxid, into: &buf)
             FfiConverterOptionString.write(reason, into: &buf)
             
         
-        case let .failedPersistence(warning):
-            writeInt(&buf, Int32(10))
-            FfiConverterString.write(warning, into: &buf)
-            
-        
         case .evaluatingFork:
-            writeInt(&buf, Int32(11))
-        
-        
-        case .emptyPeerDatabase:
-            writeInt(&buf, Int32(12))
+            writeInt(&buf, Int32(8))
         
         
         case let .unexpectedSyncError(warning):
-            writeInt(&buf, Int32(13))
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(warning, into: &buf)
             
         
         case .requestFailed:
-            writeInt(&buf, Int32(14))
+            writeInt(&buf, Int32(10))
         
         }
     }
@@ -17014,6 +18214,9 @@ public func FfiConverterTypeWarning_lower(_ value: Warning) -> RustBuffer {
 
 
 extension Warning: Equatable, Hashable {}
+
+
+
 
 
 
@@ -17102,6 +18305,9 @@ public func FfiConverterTypeWordCount_lower(_ value: WordCount) -> RustBuffer {
 
 
 extension WordCount: Equatable, Hashable {}
+
+
+
 
 
 
@@ -17276,6 +18482,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeAmount: FfiConverterRustBuffer {
     typealias SwiftType = Amount?
 
@@ -17324,6 +18554,30 @@ fileprivate struct FfiConverterOptionTypeBlockHash: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeChangeSet: FfiConverterRustBuffer {
+    typealias SwiftType = ChangeSet?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeChangeSet.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeChangeSet.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeDescriptor: FfiConverterRustBuffer {
     typealias SwiftType = Descriptor?
 
@@ -17364,6 +18618,30 @@ fileprivate struct FfiConverterOptionTypePolicy: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePolicy.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeScript: FfiConverterRustBuffer {
+    typealias SwiftType = Script?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeScript.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeScript.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -17564,6 +18842,30 @@ fileprivate struct FfiConverterOptionTypeTxDetails: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeTxOut: FfiConverterRustBuffer {
+    typealias SwiftType = TxOut?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTxOut.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTxOut.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLockTime: FfiConverterRustBuffer {
     typealias SwiftType = LockTime?
 
@@ -17604,6 +18906,30 @@ fileprivate struct FfiConverterOptionTypeNetwork: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeNetwork.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceData: FfiConverterRustBuffer {
+    typealias SwiftType = [Data]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceData.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -17678,6 +19004,31 @@ fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
         }
         return seq
     }
@@ -17928,6 +19279,56 @@ fileprivate struct FfiConverterSequenceTypeCondition: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeCondition.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeEvictedTx: FfiConverterRustBuffer {
+    typealias SwiftType = [EvictedTx]
+
+    public static func write(_ value: [EvictedTx], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEvictedTx.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EvictedTx] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EvictedTx]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEvictedTx.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeInput: FfiConverterRustBuffer {
+    typealias SwiftType = [Input]
+
+    public static func write(_ value: [Input], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeInput.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Input] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Input]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeInput.read(from: &buf))
         }
         return seq
     }
@@ -18213,6 +19614,84 @@ fileprivate struct FfiConverterDictionaryUInt32SequenceTypeCondition: FfiConvert
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDictionaryStringData: FfiConverterRustBuffer {
+    public static func write(_ value: [String: Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterData.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: Data] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: Data]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterData.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringTypeKeySource: FfiConverterRustBuffer {
+    public static func write(_ value: [String: KeySource], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterTypeKeySource.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: KeySource] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: KeySource]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterTypeKeySource.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringTypeTapKeyOrigin: FfiConverterRustBuffer {
+    public static func write(_ value: [String: TapKeyOrigin], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterTypeTapKeyOrigin.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: TapKeyOrigin] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: TapKeyOrigin]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterTypeTapKeyOrigin.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDictionaryStringSequenceUInt64: FfiConverterRustBuffer {
     public static func write(_ value: [String: [UInt64]], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -18308,6 +19787,110 @@ fileprivate struct FfiConverterDictionaryTypeTxidUInt64: FfiConverterRustBuffer 
         for _ in 0..<len {
             let key = try FfiConverterTypeTxid.read(from: &buf)
             let value = try FfiConverterUInt64.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryTypeControlBlockTypeTapScriptEntry: FfiConverterRustBuffer {
+    public static func write(_ value: [ControlBlock: TapScriptEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterTypeControlBlock.write(key, into: &buf)
+            FfiConverterTypeTapScriptEntry.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ControlBlock: TapScriptEntry] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [ControlBlock: TapScriptEntry]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterTypeControlBlock.read(from: &buf)
+            let value = try FfiConverterTypeTapScriptEntry.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryTypeKeyData: FfiConverterRustBuffer {
+    public static func write(_ value: [Key: Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterTypeKey.write(key, into: &buf)
+            FfiConverterData.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Key: Data] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [Key: Data]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterTypeKey.read(from: &buf)
+            let value = try FfiConverterData.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryTypeProprietaryKeyData: FfiConverterRustBuffer {
+    public static func write(_ value: [ProprietaryKey: Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterTypeProprietaryKey.write(key, into: &buf)
+            FfiConverterData.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ProprietaryKey: Data] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [ProprietaryKey: Data]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterTypeProprietaryKey.read(from: &buf)
+            let value = try FfiConverterData.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryTypeTapScriptSigKeyData: FfiConverterRustBuffer {
+    public static func write(_ value: [TapScriptSigKey: Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterTypeTapScriptSigKey.write(key, into: &buf)
+            FfiConverterData.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TapScriptSigKey: Data] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [TapScriptSigKey: Data]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterTypeTapScriptSigKey.read(from: &buf)
+            let value = try FfiConverterData.read(from: &buf)
             dict[key] = value
         }
         return dict
@@ -18440,7 +20023,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_version() != 18790) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 49355) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 4783) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_configure_timeout_millis() != 41120) {
@@ -18452,12 +20035,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfbuilder_data_dir() != 31903) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_dns_resolver() != 20074) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_log_level() != 53476) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_peers() != 54701) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18467,13 +20044,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfbuilder_socks5_proxy() != 50836) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_add_revealed_scripts() != 52140) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_bdkffi_checksum_method_cbfclient_average_fee_rate() != 26767) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 8491) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 56213) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_connect() != 2287) {
@@ -18482,16 +20056,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfclient_is_running() != 22584) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 26923) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 27293) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_min_broadcast_feerate() != 31908) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 22000) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_log() != 8685) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 61206) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfclient_next_warning() != 38083) {
@@ -18522,6 +20093,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_changeset_tx_graph_changeset() != 51559) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_derivationpath_is_empty() != 7158) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_derivationpath_is_master() != 46604) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_derivationpath_len() != 25050) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_descriptor_desc_type() != 22274) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptor_descriptor_id() != 35226) {
@@ -18671,6 +20254,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_psbt_finalize() != 51031) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_psbt_input() != 48443) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_psbt_json_serialize() != 25111) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18770,6 +20356,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_txbuilder_drain_wallet() != 21886) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_below_confirmations() != 24447) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_unconfirmed() != 30391) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_txbuilder_fee_absolute() != 6920) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18809,6 +20401,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_txid_serialize() != 15501) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs() != 47441) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs() != 61391) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18843,6 +20438,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_get_utxo() != 31901) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_wallet_insert_txout() != 63010) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_is_mine() != 12109) {
@@ -18896,16 +20494,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_wallet_sign() != 16374) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_wallet_staged() != 59474) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_wallet_start_full_scan() != 29628) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks() != 37305) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_wallet_take_staged() != 49180) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_wallet_transactions() != 45722) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_tx_details() != 21865) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_wallet_unmark_used() != 41613) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wtxid_serialize() != 29733) {
@@ -18956,6 +20563,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_constructor_changeset_new() != 22000) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_constructor_derivationpath_master() != 32930) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_constructor_derivationpath_new() != 30769) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18965,25 +20575,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44() != 3624) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44_public() != 31153) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44_public() != 44307) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49() != 25091) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49_public() != 37536) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49_public() != 5708) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84() != 64808) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84_public() != 21895) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84_public() != 36216) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86() != 29942) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86_public() != 10777) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86_public() != 18734) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_descriptorid_from_bytes() != 7595) {
@@ -19070,7 +20680,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_constructor_txid_from_string() != 39405) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 21534) {
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_from_two_path_descriptor() != 35837) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_single() != 50616) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 23009) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_single() != 12903) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_wallet_new() != 39177) {
