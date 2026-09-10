@@ -605,7 +605,11 @@ fileprivate struct FfiConverterString: FfiConverter {
             return String()
         }
         let bytes = UnsafeBufferPointer<UInt8>(start: value.data!, count: Int(value.len))
-        return String(bytes: bytes, encoding: String.Encoding.utf8)!
+        // Use Swift's native UTF-8 decoder; `String(bytes:encoding:.utf8)` goes
+        // through Foundation's NSString and silently strips a leading U+FEFF BOM.
+        // Invalid UTF-8 substitutes U+FFFD instead of trapping (unreachable
+        // given Rust's `String` invariant).
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     public static func lower(_ value: String) -> RustBuffer {
@@ -621,7 +625,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> String {
         let len: Int32 = try readInt(&buf)
-        return String(bytes: try readBytes(&buf, count: Int(len)), encoding: String.Encoding.utf8)!
+        // See `lift` above for why we avoid Foundation's NSString-backed decoder here.
+        return String(decoding: try readBytes(&buf, count: Int(len)), as: UTF8.self)
     }
 
     public static func write(_ value: String, into buf: inout [UInt8]) {
@@ -735,6 +740,11 @@ public convenience init(address: String, network: Network)throws  {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_address(handle, $0) }
     }
 
@@ -895,7 +905,7 @@ public protocol AmountProtocol: AnyObject, Sendable {
  * underflow occurs. Also note that since the internal representation of amounts is unsigned,
  * subtracting below zero is considered an underflow and will cause a panic.
  */
-open class Amount: AmountProtocol, @unchecked Sendable {
+open class Amount: AmountProtocol, @unchecked Sendable, CustomStringConvertible {
     fileprivate let handle: UInt64
 
     /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
@@ -937,6 +947,11 @@ open class Amount: AmountProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_amount(handle, $0) }
     }
 
@@ -990,6 +1005,16 @@ open func toSat() -> UInt64  {
     
 
     
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_amount_uniffi_trait_display(
+            self.uniffiCloneHandle(),$0
+    )
+}
+    )
+}
 }
 
 
@@ -1094,6 +1119,11 @@ open class BlockHash: BlockHashProtocol, @unchecked Sendable, Equatable, Hashabl
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_blockhash(handle, $0) }
     }
 
@@ -1247,8 +1277,9 @@ public protocol BumpFeeTxBuilderProtocol: AnyObject, Sendable {
      * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
      * `nlocktime` using `TxBuilder::nlocktime`.
      *
-     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
-     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature
+     * at spending height, which is `current_height` + 1, we ignore them in the coin selection.
+     * If you want to create a transaction that spends immature coinbase inputs,
      * manually add them using `TxBuilder::add_utxos`.
      * In both cases, if you don’t provide a current height, we use the last sync height.
      */
@@ -1362,6 +1393,11 @@ public convenience init(txid: Txid, feeRate: FeeRate) {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_bumpfeetxbuilder(handle, $0) }
     }
 
@@ -1390,8 +1426,9 @@ open func allowDust(allowDust: Bool) -> BumpFeeTxBuilder  {
      * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
      * `nlocktime` using `TxBuilder::nlocktime`.
      *
-     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
-     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature
+     * at spending height, which is `current_height` + 1, we ignore them in the coin selection.
+     * If you want to create a transaction that spends immature coinbase inputs,
      * manually add them using `TxBuilder::add_utxos`.
      * In both cases, if you don’t provide a current height, we use the last sync height.
      */
@@ -1589,6 +1626,12 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
     func dataDir(dataDir: String)  -> CbfBuilder
     
     /**
+     * When set, only connect to peers configured at build time. This will skip DNS and will not
+     * use gossiped nodes.
+     */
+    func onlyConfiguredPeers()  -> CbfBuilder
+    
+    /**
      * Bitcoin full-nodes to attempt a connection with.
      */
     func peers(peers: [Peer])  -> CbfBuilder
@@ -1673,6 +1716,11 @@ public convenience init() {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_cbfbuilder(handle, $0) }
     }
 
@@ -1727,6 +1775,18 @@ open func dataDir(dataDir: String) -> CbfBuilder  {
     uniffi_bdkffi_fn_method_cbfbuilder_data_dir(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(dataDir),$0
+    )
+})
+}
+    
+    /**
+     * When set, only connect to peers configured at build time. This will skip DNS and will not
+     * use gossiped nodes.
+     */
+open func onlyConfiguredPeers() -> CbfBuilder  {
+    return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_cbfbuilder_only_configured_peers(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1931,6 +1991,11 @@ open class CbfClient: CbfClientProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_cbfclient(handle, $0) }
     }
 
@@ -2187,6 +2252,7 @@ public protocol CbfNodeProtocol: AnyObject, Sendable {
     
     /**
      * Start the node on a detached OS thread and immediately return.
+     * Subsequent calls have no effect.
      */
     func run() 
     
@@ -2239,6 +2305,11 @@ open class CbfNode: CbfNodeProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_cbfnode(handle, $0) }
     }
 
@@ -2247,6 +2318,7 @@ open class CbfNode: CbfNodeProtocol, @unchecked Sendable {
     
     /**
      * Start the node on a detached OS thread and immediately return.
+     * Subsequent calls have no effect.
      */
 open func run()  {try! rustCall() {
     uniffi_bdkffi_fn_method_cbfnode_run(
@@ -2395,6 +2467,11 @@ public convenience init() {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_changeset(handle, $0) }
     }
 
@@ -2716,6 +2793,11 @@ public convenience init(path: String)throws  {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_derivationpath(handle, $0) }
     }
 
@@ -2868,6 +2950,11 @@ public func FfiConverterTypeDerivationPath_lower(_ value: DerivationPath) -> UIn
  */
 public protocol DescriptorProtocol: AnyObject, Sendable {
     
+    /**
+     * Return a public version of this descriptor without secret key material.
+     */
+    func asPublic()  -> Descriptor
+    
     func deriveAddress(index: UInt32, network: Network) throws  -> Address
     
     func descType()  -> DescriptorType
@@ -2974,6 +3061,11 @@ public convenience init(descriptor: String, networkKind: NetworkKind)throws  {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_descriptor(handle, $0) }
     }
 
@@ -3145,6 +3237,28 @@ public static func newShSortedmulti(k: UInt32, pks: [String])throws  -> Descript
 }
     
     /**
+     * Create a new sh wrapper for the given wpkh descriptor
+     */
+public static func newShWithWpkh(wpkh: String)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
+    uniffi_bdkffi_fn_constructor_descriptor_new_sh_with_wpkh(
+        FfiConverterString.lower(wpkh),$0
+    )
+})
+}
+    
+    /**
+     * Create a new sh wrapper for the given wsh descriptor
+     */
+public static func newShWithWsh(wsh: String)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
+    uniffi_bdkffi_fn_constructor_descriptor_new_sh_with_wsh(
+        FfiConverterString.lower(wsh),$0
+    )
+})
+}
+    
+    /**
      * Create a new sh wrapped wpkh from Pk. Errors when uncompressed keys are supplied
      */
 public static func newShWpkh(pk: String)throws  -> Descriptor  {
@@ -3176,6 +3290,19 @@ public static func newShWshSortedmulti(k: UInt32, pks: [String])throws  -> Descr
     uniffi_bdkffi_fn_constructor_descriptor_new_sh_wsh_sortedmulti(
         FfiConverterUInt32.lower(k),
         FfiConverterSequenceString.lower(pks),$0
+    )
+})
+}
+    
+    /**
+     * Create new tr descriptor
+     * Errors when miniscript exceeds resource limits under Tap context
+     */
+public static func newTr(key: String, script: String?)throws  -> Descriptor  {
+    return try  FfiConverterTypeDescriptor_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
+    uniffi_bdkffi_fn_constructor_descriptor_new_tr(
+        FfiConverterString.lower(key),
+        FfiConverterOptionString.lower(script),$0
     )
 })
 }
@@ -3217,6 +3344,17 @@ public static func newWshSortedmulti(k: UInt32, pks: [String])throws  -> Descrip
 }
     
 
+    
+    /**
+     * Return a public version of this descriptor without secret key material.
+     */
+open func asPublic() -> Descriptor  {
+    return try!  FfiConverterTypeDescriptor_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptor_as_public(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
     
 open func deriveAddress(index: UInt32, network: Network)throws  -> Address  {
     return try  FfiConverterTypeAddress_lift(try rustCallWithError(FfiConverterTypeDescriptorError_lift) {
@@ -3447,6 +3585,11 @@ open class DescriptorId: DescriptorIdProtocol, @unchecked Sendable, Equatable, H
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_descriptorid(handle, $0) }
     }
 
@@ -3659,6 +3802,11 @@ open class DescriptorPublicKey: DescriptorPublicKeyProtocol, @unchecked Sendable
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_descriptorpublickey(handle, $0) }
     }
 
@@ -3899,6 +4047,11 @@ public convenience init(networkKind: NetworkKind, mnemonic: Mnemonic, password: 
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_descriptorsecretkey(handle, $0) }
     }
 
@@ -4210,6 +4363,11 @@ public convenience init(url: String, socks5: String? = nil, timeout: UInt8? = ni
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_electrumclient(handle, $0) }
     }
 
@@ -4607,6 +4765,11 @@ public convenience init(url: String, proxy: String? = nil) {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_esploraclient(handle, $0) }
     }
 
@@ -4971,6 +5134,11 @@ open class FeeRate: FeeRateProtocol, @unchecked Sendable, CustomStringConvertibl
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_feerate(handle, $0) }
     }
 
@@ -5165,6 +5333,11 @@ open class FullScanRequest: FullScanRequestProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_fullscanrequest(handle, $0) }
     }
 
@@ -5270,6 +5443,11 @@ open class FullScanRequestBuilder: FullScanRequestBuilderProtocol, @unchecked Se
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_fullscanrequestbuilder(handle, $0) }
     }
 
@@ -5390,6 +5568,11 @@ open class FullScanScriptInspectorImpl: FullScanScriptInspector, @unchecked Send
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_fullscanscriptinspector(handle, $0) }
     }
 
@@ -5418,9 +5601,8 @@ fileprivate struct UniffiCallbackInterfaceFullScanScriptInspector {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceFullScanScriptInspector] = [UniffiVTableCallbackInterfaceFullScanScriptInspector(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFullScanScriptInspector = UniffiVTableCallbackInterfaceFullScanScriptInspector(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeFullScanScriptInspector.handleMap.remove(handle: uniffiHandle)
@@ -5463,11 +5645,23 @@ fileprivate struct UniffiCallbackInterfaceFullScanScriptInspector {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFullScanScriptInspector> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFullScanScriptInspector>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitFullScanScriptInspector() {
-    uniffi_bdkffi_fn_init_callback_vtable_fullscanscriptinspector(UniffiCallbackInterfaceFullScanScriptInspector.vtable)
+    uniffi_bdkffi_fn_init_callback_vtable_fullscanscriptinspector(UniffiCallbackInterfaceFullScanScriptInspector.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -5603,6 +5797,11 @@ public convenience init(outpoint: OutPoint) {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_hashableoutpoint(handle, $0) }
     }
 
@@ -5753,6 +5952,11 @@ open class IpAddress: IpAddressProtocol, @unchecked Sendable, CustomStringConver
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_ipaddress(handle, $0) }
     }
 
@@ -5938,6 +6142,11 @@ open class LeafNode: LeafNodeProtocol, @unchecked Sendable, CustomStringConverti
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_leafnode(handle, $0) }
     }
 
@@ -6138,14 +6347,20 @@ public convenience init(wordCount: WordCount) {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_mnemonic(handle, $0) }
     }
 
     
     /**
-     * Construct a mnemonic given an array of bytes. Note that using weak entropy will result in a loss
-     * of funds. To ensure the entropy is generated properly, read about your operating
-     * system specific ways to generate secure random numbers.
+     * Construct a mnemonic from caller-provided entropy.
+     *
+     * This function does not generate entropy. Callers must provide cryptographically secure
+     * entropy; weak entropy can result in loss of funds.
      */
 public static func fromEntropy(entropy: Data)throws  -> Mnemonic  {
     return try  FfiConverterTypeMnemonic_lift(try rustCallWithError(FfiConverterTypeBip39Error_lift) {
@@ -6295,6 +6510,11 @@ open class NodeInfo: NodeInfoProtocol, @unchecked Sendable, CustomStringConverti
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_nodeinfo(handle, $0) }
     }
 
@@ -6444,6 +6664,11 @@ open class PersistenceImpl: Persistence, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_persistence(handle, $0) }
     }
 
@@ -6484,9 +6709,8 @@ fileprivate struct UniffiCallbackInterfacePersistence {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfacePersistence] = [UniffiVTableCallbackInterfacePersistence(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfacePersistence = UniffiVTableCallbackInterfacePersistence(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypePersistence.handleMap.remove(handle: uniffiHandle)
@@ -6549,11 +6773,23 @@ fileprivate struct UniffiCallbackInterfacePersistence {
                 lowerError: FfiConverterTypePersistenceError_lower
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfacePersistence> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfacePersistence>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitPersistence() {
-    uniffi_bdkffi_fn_init_callback_vtable_persistence(UniffiCallbackInterfacePersistence.vtable)
+    uniffi_bdkffi_fn_init_callback_vtable_persistence(UniffiCallbackInterfacePersistence.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -6672,6 +6908,11 @@ open class Persister: PersisterProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_persister(handle, $0) }
     }
 
@@ -6834,6 +7075,11 @@ open class Policy: PolicyProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_policy(handle, $0) }
     }
 
@@ -6962,6 +7208,22 @@ public protocol PsbtProtocol: AnyObject, Sendable {
     func extractTx() throws  -> Transaction
     
     /**
+     * Perform `extract_tx` without the fee rate check.
+     *
+     * This can result in a transaction with absurdly high fees. Use with caution.
+     */
+    func extractTxUncheckedFeeRate()  -> Transaction
+    
+    /**
+     * Extracts the `Transaction` from a `Psbt` by filling in the available signature information.
+     *
+     * #### Errors
+     *
+     * See `extract_tx`.
+     */
+    func extractTxWithFeeRateLimit(maxFeeRate: FeeRate) throws  -> Transaction
+    
+    /**
      * Calculates transaction fee.
      *
      * 'Fee' being the amount that will be paid for mining a transaction with the current inputs
@@ -7016,7 +7278,7 @@ public protocol PsbtProtocol: AnyObject, Sendable {
 /**
  * A Partially Signed Transaction.
  */
-open class Psbt: PsbtProtocol, @unchecked Sendable {
+open class Psbt: PsbtProtocol, @unchecked Sendable, CustomStringConvertible {
     fileprivate let handle: UInt64
 
     /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
@@ -7069,6 +7331,11 @@ public convenience init(psbtBase64: String)throws  {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_psbt(handle, $0) }
     }
 
@@ -7128,6 +7395,35 @@ open func extractTx()throws  -> Transaction  {
     return try  FfiConverterTypeTransaction_lift(try rustCallWithError(FfiConverterTypeExtractTxError_lift) {
     uniffi_bdkffi_fn_method_psbt_extract_tx(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Perform `extract_tx` without the fee rate check.
+     *
+     * This can result in a transaction with absurdly high fees. Use with caution.
+     */
+open func extractTxUncheckedFeeRate() -> Transaction  {
+    return try!  FfiConverterTypeTransaction_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_psbt_extract_tx_unchecked_fee_rate(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Extracts the `Transaction` from a `Psbt` by filling in the available signature information.
+     *
+     * #### Errors
+     *
+     * See `extract_tx`.
+     */
+open func extractTxWithFeeRateLimit(maxFeeRate: FeeRate)throws  -> Transaction  {
+    return try  FfiConverterTypeTransaction_lift(try rustCallWithError(FfiConverterTypeExtractTxError_lift) {
+    uniffi_bdkffi_fn_method_psbt_extract_tx_with_fee_rate_limit(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFeeRate_lower(maxFeeRate),$0
     )
 })
 }
@@ -7234,6 +7530,16 @@ open func writeToFile(path: String)throws   {try rustCallWithError(FfiConverterT
     
 
     
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbt_uniffi_trait_display(
+            self.uniffiCloneHandle(),$0
+    )
+}
+    )
+}
 }
 
 
@@ -7349,6 +7655,11 @@ public convenience init(rawOutputScript: Data) {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_script(handle, $0) }
     }
 
@@ -7426,6 +7737,178 @@ public func FfiConverterTypeScript_lower(_ value: Script) -> UInt64 {
 
 
 
+/**
+ * Container for multiple signers.
+ */
+public protocol SignersContainerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns true when the container has no signers.
+     */
+    func isEmpty()  -> Bool
+    
+    /**
+     * Returns the number of signer entries registered in the container.
+     */
+    func len()  -> UInt64
+    
+}
+/**
+ * Container for multiple signers.
+ */
+open class SignersContainer: SignersContainerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_bdkffi_fn_clone_signerscontainer(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_bdkffi_fn_free_signerscontainer(handle, $0) }
+    }
+
+    
+    /**
+     * Build a new signer container from a descriptor's key map.
+     *
+     * Also looks at the same descriptor to determine the `SignerContext` to attach to the signers.
+     */
+public static func fromDescriptor(descriptor: Descriptor) -> SignersContainer  {
+    return try!  FfiConverterTypeSignersContainer_lift(try! rustCall() {
+    uniffi_bdkffi_fn_constructor_signerscontainer_from_descriptor(
+        FfiConverterTypeDescriptor_lower(descriptor),$0
+    )
+})
+}
+    
+    /**
+     * Build a new signer container from a signer descriptor's key map.
+     *
+     * Also looks at the corresponding descriptor to determine the `SignerContext` to attach to
+     * the signers.
+     */
+public static func fromDescriptorWithContext(signerDescriptor: Descriptor, contextDescriptor: Descriptor) -> SignersContainer  {
+    return try!  FfiConverterTypeSignersContainer_lift(try! rustCall() {
+    uniffi_bdkffi_fn_constructor_signerscontainer_from_descriptor_with_context(
+        FfiConverterTypeDescriptor_lower(signerDescriptor),
+        FfiConverterTypeDescriptor_lower(contextDescriptor),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Returns true when the container has no signers.
+     */
+open func isEmpty() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_signerscontainer_is_empty(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the number of signer entries registered in the container.
+     */
+open func len() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_signerscontainer_len(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSignersContainer: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = SignersContainer
+
+    public static func lift(_ handle: UInt64) throws -> SignersContainer {
+        return SignersContainer(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: SignersContainer) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SignersContainer {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: SignersContainer, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignersContainer_lift(_ handle: UInt64) throws -> SignersContainer {
+    return try FfiConverterTypeSignersContainer.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignersContainer_lower(_ value: SignersContainer) -> UInt64 {
+    return FfiConverterTypeSignersContainer.lower(value)
+}
+
+
+
+
+
+
 public protocol SyncRequestProtocol: AnyObject, Sendable {
     
 }
@@ -7471,6 +7954,11 @@ open class SyncRequest: SyncRequestProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_syncrequest(handle, $0) }
     }
 
@@ -7576,6 +8064,11 @@ open class SyncRequestBuilder: SyncRequestBuilderProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_syncrequestbuilder(handle, $0) }
     }
 
@@ -7696,6 +8189,11 @@ open class SyncScriptInspectorImpl: SyncScriptInspector, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_syncscriptinspector(handle, $0) }
     }
 
@@ -7723,9 +8221,8 @@ fileprivate struct UniffiCallbackInterfaceSyncScriptInspector {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceSyncScriptInspector] = [UniffiVTableCallbackInterfaceSyncScriptInspector(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceSyncScriptInspector = UniffiVTableCallbackInterfaceSyncScriptInspector(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeSyncScriptInspector.handleMap.remove(handle: uniffiHandle)
@@ -7766,11 +8263,23 @@ fileprivate struct UniffiCallbackInterfaceSyncScriptInspector {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceSyncScriptInspector> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceSyncScriptInspector>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitSyncScriptInspector() {
-    uniffi_bdkffi_fn_init_callback_vtable_syncscriptinspector(UniffiCallbackInterfaceSyncScriptInspector.vtable)
+    uniffi_bdkffi_fn_init_callback_vtable_syncscriptinspector(UniffiCallbackInterfaceSyncScriptInspector.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -7898,6 +8407,11 @@ open class TapTree: TapTreeProtocol, @unchecked Sendable, CustomStringConvertibl
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_taptree(handle, $0) }
     }
 
@@ -8160,6 +8674,11 @@ public convenience init(transactionBytes: Data)throws  {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_transaction(handle, $0) }
     }
 
@@ -8552,6 +9071,11 @@ public protocol TxBuilderProtocol: AnyObject, Sendable {
     func changePolicy(changePolicy: ChangeSpendPolicy)  -> TxBuilder
     
     /**
+     * Choose the coin selection algorithm
+     */
+    func coinSelection(coinSelection: CoinSelectionAlgorithm)  -> TxBuilder
+    
+    /**
      * Set the current blockchain height.
      *
      * This will be used to:
@@ -8559,8 +9083,9 @@ public protocol TxBuilderProtocol: AnyObject, Sendable {
      * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
      * `nlocktime` using `TxBuilder::nlocktime`.
      *
-     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
-     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature
+     * at spending height, which is `current_height` + 1, we ignore them in the coin selection.
+     * If you want to create a transaction that spends immature coinbase inputs,
      * manually add them using `TxBuilder::add_utxos`.
      * In both cases, if you don’t provide a current height, we use the last sync height.
      */
@@ -8784,6 +9309,11 @@ public convenience init() {
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_txbuilder(handle, $0) }
     }
 
@@ -8986,6 +9516,18 @@ open func changePolicy(changePolicy: ChangeSpendPolicy) -> TxBuilder  {
 }
     
     /**
+     * Choose the coin selection algorithm
+     */
+open func coinSelection(coinSelection: CoinSelectionAlgorithm) -> TxBuilder  {
+    return try!  FfiConverterTypeTxBuilder_lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_txbuilder_coin_selection(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeCoinSelectionAlgorithm_lower(coinSelection),$0
+    )
+})
+}
+    
+    /**
      * Set the current blockchain height.
      *
      * This will be used to:
@@ -8993,8 +9535,9 @@ open func changePolicy(changePolicy: ChangeSpendPolicy) -> TxBuilder  {
      * 1. Set the `nLockTime` for preventing fee sniping. Note: This will be ignored if you manually specify a
      * `nlocktime` using `TxBuilder::nlocktime`.
      *
-     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature at `current_height`,
-     * we ignore them in the coin selection. If you want to create a transaction that spends immature coinbase inputs,
+     * 2. Decide whether coinbase outputs are mature or not. If the coinbase outputs are not mature
+     * at spending height, which is `current_height` + 1, we ignore them in the coin selection.
+     * If you want to create a transaction that spends immature coinbase inputs,
      * manually add them using `TxBuilder::add_utxos`.
      * In both cases, if you don’t provide a current height, we use the last sync height.
      */
@@ -9405,6 +9948,11 @@ open class TxMerkleNode: TxMerkleNodeProtocol, @unchecked Sendable, Equatable, H
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_txmerklenode(handle, $0) }
     }
 
@@ -9593,6 +10141,11 @@ open class Txid: TxidProtocol, @unchecked Sendable, Equatable, Hashable, Compara
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_txid(handle, $0) }
     }
 
@@ -9776,6 +10329,11 @@ open class Update: UpdateProtocol, @unchecked Sendable {
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_update(handle, $0) }
     }
 
@@ -10026,6 +10584,11 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func isOutpointLocked(outpoint: OutPoint)  -> Bool
     
     /**
+     * Iterator over all keychains in this wallet
+     */
+    func keychains()  -> [WalletKeychain]
+    
+    /**
      * Returns the latest checkpoint.
      */
     func latestCheckpoint()  -> BlockId
@@ -10182,6 +10745,21 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func sign(psbt: Psbt, signOptions: SignOptions?) throws  -> Bool
     
     /**
+     * Sign a transaction with the provided signer containers.
+     *
+     * Signer containers are processed in the order provided. Signers inside each container are
+     * processed according to their `SignerOrdering`.
+     *
+     * The `SignOptions` can be used to tweak the behavior of the software signers, and the way
+     * the transaction is finalized at the end. Note that it can't be guaranteed that every signer
+     * will follow the options, but the "software signers" (WIF keys and `xprv`) defined in this
+     * library will.
+     *
+     * Returns true if the PSBT was finalized, or false otherwise.
+     */
+    func signWithSigners(psbt: Psbt, signers: [SignersContainer], signOptions: SignOptions?) throws  -> Bool
+    
+    /**
      * Get a reference of the staged [`ChangeSet`] that is yet to be committed (if any).
      */
     func staged()  -> ChangeSet?
@@ -10328,6 +10906,11 @@ public convenience init(descriptor: Descriptor, changeDescriptor: Descriptor, ne
 }
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_wallet(handle, $0) }
     }
 
@@ -10335,13 +10918,18 @@ public convenience init(descriptor: Descriptor, changeDescriptor: Descriptor, ne
     /**
      * Build a new `Wallet` from a two-path descriptor.
      *
-     * This function parses a multipath descriptor with exactly 2 paths and creates a wallet using the existing receive and change wallet creation logic.
+     * This function parses a multipath descriptor with exactly 2 paths and creates a wallet
+     * using the existing receive and change wallet creation logic.
      *
-     * Multipath descriptors follow [BIP-389](https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki) and allow defining both receive and change derivation paths in a single descriptor using the <0;1> syntax.
+     * The provided descriptor may only contain extended public keys (`xpub`) with exactly 2 paths.
+     *
+     * Multipath descriptors follow [BIP-389](https://github.com/bitcoin/bips/blob/master/bip-0389.mediawiki)
+     * and allow defining both receive and change derivation paths in a single descriptor using
+     * the `<0;1>` syntax.
      *
      * If you have previously created a wallet, use load instead.
      *
-     * Returns an error if the descriptor is invalid or not a 2-path multipath descriptor.
+     * Returns an error if the descriptor is not a 2-path multipath descriptor.
      */
 public static func createFromTwoPathDescriptor(twoPathDescriptor: Descriptor, network: Network, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
     return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
@@ -10350,6 +10938,22 @@ public static func createFromTwoPathDescriptor(twoPathDescriptor: Descriptor, ne
         FfiConverterTypeNetwork_lower(network),
         FfiConverterTypePersister_lower(persister),
         FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a new `Wallet` from a two-path descriptor with explicit create parameters.
+     *
+     * If you have previously created a wallet, use load instead.
+     */
+public static func createFromTwoPathDescriptorWithParams(twoPathDescriptor: Descriptor, network: Network, persister: Persister, params: CreateParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_from_two_path_descriptor_with_params(
+        FfiConverterTypeDescriptor_lower(twoPathDescriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeCreateParams_lower(params),$0
     )
 })
 }
@@ -10386,6 +10990,39 @@ public static func createSingle(descriptor: Descriptor, network: Network, persis
 }
     
     /**
+     * Build a new single descriptor `Wallet` with explicit create parameters.
+     *
+     * If you have previously created a wallet, use `Wallet::load` instead.
+     */
+public static func createSingleWithParams(descriptor: Descriptor, network: Network, persister: Persister, params: CreateParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_single_with_params(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeCreateParams_lower(params),$0
+    )
+})
+}
+    
+    /**
+     * Build a new Wallet with explicit create parameters.
+     *
+     * If you have previously created a wallet, use load instead.
+     */
+public static func createWithParams(descriptor: Descriptor, changeDescriptor: Descriptor, network: Network, persister: Persister, params: CreateParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeCreateWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_create_with_params(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypeDescriptor_lower(changeDescriptor),
+        FfiConverterTypeNetwork_lower(network),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeCreateParams_lower(params),$0
+    )
+})
+}
+    
+    /**
      * Build Wallet by loading from persistence.
      *
      * Note that the descriptor secret keys are not persisted to the db.
@@ -10402,6 +11039,43 @@ public static func load(descriptor: Descriptor, changeDescriptor: Descriptor, pe
 }
     
     /**
+     * Build a two-path descriptor `Wallet` by loading from persistence.
+     *
+     * Checks that the provided two-path descriptor matches exactly what is loaded
+     * for both the external and internal keychains.
+     *
+     * The provided descriptor may only contain extended public keys (`xpub`) with exactly 2 paths.
+     */
+public static func loadFromTwoPathDescriptor(twoPathDescriptor: Descriptor, persister: Persister, lookahead: UInt32 = UInt32(25))throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_load_from_two_path_descriptor(
+        FfiConverterTypeDescriptor_lower(twoPathDescriptor),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a two-path descriptor `Wallet` by loading from persistence with explicit load
+     * parameters.
+     *
+     * Checks that the provided two-path descriptor matches exactly what is loaded
+     * for both the external and internal keychains.
+     *
+     * The provided descriptor may only contain extended public keys (`xpub`) with exactly 2 paths.
+     */
+public static func loadFromTwoPathDescriptorWithParams(twoPathDescriptor: Descriptor, persister: Persister, params: LoadParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_load_from_two_path_descriptor_with_params(
+        FfiConverterTypeDescriptor_lower(twoPathDescriptor),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeLoadParams_lower(params),$0
+    )
+})
+}
+    
+    /**
      * Build a single-descriptor Wallet by loading from persistence.
      *
      * Note that the descriptor secret keys are not persisted to the db.
@@ -10412,6 +11086,37 @@ public static func loadSingle(descriptor: Descriptor, persister: Persister, look
         FfiConverterTypeDescriptor_lower(descriptor),
         FfiConverterTypePersister_lower(persister),
         FfiConverterUInt32.lower(lookahead),$0
+    )
+})
+}
+    
+    /**
+     * Build a single-descriptor Wallet by loading from persistence with explicit load parameters.
+     *
+     * Note that the descriptor secret keys are not persisted to the db.
+     */
+public static func loadSingleWithParams(descriptor: Descriptor, persister: Persister, params: LoadParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_load_single_with_params(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeLoadParams_lower(params),$0
+    )
+})
+}
+    
+    /**
+     * Build Wallet by loading from persistence with explicit load parameters.
+     *
+     * Note that the descriptor secret keys are not persisted to the db.
+     */
+public static func loadWithParams(descriptor: Descriptor, changeDescriptor: Descriptor, persister: Persister, params: LoadParams)throws  -> Wallet  {
+    return try  FfiConverterTypeWallet_lift(try rustCallWithError(FfiConverterTypeLoadWithPersistError_lift) {
+    uniffi_bdkffi_fn_constructor_wallet_load_with_params(
+        FfiConverterTypeDescriptor_lower(descriptor),
+        FfiConverterTypeDescriptor_lower(changeDescriptor),
+        FfiConverterTypePersister_lower(persister),
+        FfiConverterTypeLoadParams_lower(params),$0
     )
 })
 }
@@ -10725,6 +11430,17 @@ open func isOutpointLocked(outpoint: OutPoint) -> Bool  {
 }
     
     /**
+     * Iterator over all keychains in this wallet
+     */
+open func keychains() -> [WalletKeychain]  {
+    return try!  FfiConverterSequenceTypeWalletKeychain.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_wallet_keychains(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Returns the latest checkpoint.
      */
 open func latestCheckpoint() -> BlockId  {
@@ -11011,6 +11727,30 @@ open func sign(psbt: Psbt, signOptions: SignOptions? = nil)throws  -> Bool  {
 }
     
     /**
+     * Sign a transaction with the provided signer containers.
+     *
+     * Signer containers are processed in the order provided. Signers inside each container are
+     * processed according to their `SignerOrdering`.
+     *
+     * The `SignOptions` can be used to tweak the behavior of the software signers, and the way
+     * the transaction is finalized at the end. Note that it can't be guaranteed that every signer
+     * will follow the options, but the "software signers" (WIF keys and `xprv`) defined in this
+     * library will.
+     *
+     * Returns true if the PSBT was finalized, or false otherwise.
+     */
+open func signWithSigners(psbt: Psbt, signers: [SignersContainer], signOptions: SignOptions? = nil)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSignerError_lift) {
+    uniffi_bdkffi_fn_method_wallet_sign_with_signers(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePsbt_lower(psbt),
+        FfiConverterSequenceTypeSignersContainer.lower(signers),
+        FfiConverterOptionTypeSignOptions.lower(signOptions),$0
+    )
+})
+}
+    
+    /**
      * Get a reference of the staged [`ChangeSet`] that is yet to be committed (if any).
      */
 open func staged() -> ChangeSet?  {
@@ -11256,6 +11996,11 @@ open class Wtxid: WtxidProtocol, @unchecked Sendable, Equatable, Hashable, Compa
     // No primary constructor declared for this class.
 
     deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
         try! rustCall { uniffi_bdkffi_fn_free_wtxid(handle, $0) }
     }
 
@@ -11421,6 +12166,8 @@ public struct AddressInfo {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -11473,6 +12220,8 @@ public struct Anchor {
         self.confirmationBlockTime = confirmationBlockTime
         self.txid = txid
     }
+
+    
 
     
 }
@@ -11580,6 +12329,8 @@ public struct Balance {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -11642,6 +12393,8 @@ public struct Block {
         self.header = header
         self.txdata = txdata
     }
+
+    
 
     
 }
@@ -11711,6 +12464,8 @@ public struct BlockId {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -11776,6 +12531,8 @@ public struct CanonicalTx {
         self.transaction = transaction
         self.chainPosition = chainPosition
     }
+
+    
 
     
 }
@@ -11845,6 +12602,8 @@ public struct CbfComponents {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -11910,6 +12669,8 @@ public struct ChainChange {
         self.height = height
         self.hash = hash
     }
+
+    
 
     
 }
@@ -11979,6 +12740,8 @@ public struct Condition: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12046,6 +12809,8 @@ public struct ConfirmationBlockTime {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12111,6 +12876,8 @@ public struct Conflict: CustomStringConvertible {
         self.vin = vin
         self.txid = txid
     }
+
+    
 
     
 // The local Rust `Display` implementation.
@@ -12203,6 +12970,8 @@ public struct ControlBlock: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12248,6 +13017,85 @@ public func FfiConverterTypeControlBlock_lower(_ value: ControlBlock) -> RustBuf
 
 
 /**
+ * Parameters for `Wallet` creation.
+ */
+public struct CreateParams {
+    /**
+     * Use a custom `genesis_hash`.
+     */
+    public var genesisHash: BlockHash?
+    /**
+     * Use a custom `lookahead` value.
+     */
+    public var lookahead: UInt32
+    /**
+     * Use a persistent cache of indexed script pubkeys (SPKs).
+     */
+    public var useSpkCache: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Use a custom `genesis_hash`.
+         */genesisHash: BlockHash?, 
+        /**
+         * Use a custom `lookahead` value.
+         */lookahead: UInt32, 
+        /**
+         * Use a persistent cache of indexed script pubkeys (SPKs).
+         */useSpkCache: Bool) {
+        self.genesisHash = genesisHash
+        self.lookahead = lookahead
+        self.useSpkCache = useSpkCache
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CreateParams: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCreateParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CreateParams {
+        return
+            try CreateParams(
+                genesisHash: FfiConverterOptionTypeBlockHash.read(from: &buf), 
+                lookahead: FfiConverterUInt32.read(from: &buf), 
+                useSpkCache: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CreateParams, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeBlockHash.write(value.genesisHash, into: &buf)
+        FfiConverterUInt32.write(value.lookahead, into: &buf)
+        FfiConverterBool.write(value.useSpkCache, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCreateParams_lift(_ buf: RustBuffer) throws -> CreateParams {
+    return try FfiConverterTypeCreateParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCreateParams_lower(_ value: CreateParams) -> RustBuffer {
+    return FfiConverterTypeCreateParams.lower(value)
+}
+
+
+/**
  * This type replaces the Rust tuple `(txid, evicted_at)` used in the Wallet::apply_evicted_txs` method,
  * where `evicted_at` is the timestamp of when the transaction `txid` was evicted from the mempool.
  * Transactions may be evicted for paying a low fee rate or having invalid scripts.
@@ -12262,6 +13110,8 @@ public struct EvictedTx {
         self.txid = txid
         self.evictedAt = evictedAt
     }
+
+    
 
     
 }
@@ -12316,6 +13166,8 @@ public struct FinalizedPsbtResult {
         self.couldFinalize = couldFinalize
         self.errors = errors
     }
+
+    
 
     
 }
@@ -12421,6 +13273,8 @@ public struct Header {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12496,6 +13350,8 @@ public struct HeaderNotification {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12547,6 +13403,8 @@ public struct IndexerChangeSet {
     public init(lastRevealed: [DescriptorId: UInt32]) {
         self.lastRevealed = lastRevealed
     }
+
+    
 
     
 }
@@ -12784,6 +13642,8 @@ public struct Input {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12888,6 +13748,8 @@ public struct Key: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -12950,6 +13812,8 @@ public struct KeySource {
         self.fingerprint = fingerprint
         self.path = path
     }
+
+    
 
     
 }
@@ -13019,6 +13883,8 @@ public struct KeychainAndIndex: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13060,6 +13926,95 @@ public func FfiConverterTypeKeychainAndIndex_lower(_ value: KeychainAndIndex) ->
 
 
 /**
+ * Parameters for `Wallet` loading.
+ */
+public struct LoadParams {
+    /**
+     * Checks that the given network matches the one loaded from persistence.
+     */
+    public var checkNetwork: Network?
+    /**
+     * Checks that the given `genesis_hash` matches the one loaded from persistence.
+     */
+    public var checkGenesisHash: BlockHash?
+    /**
+     * Use a custom `lookahead` value.
+     */
+    public var lookahead: UInt32
+    /**
+     * Use a persistent cache of indexed script pubkeys (SPKs).
+     */
+    public var useSpkCache: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Checks that the given network matches the one loaded from persistence.
+         */checkNetwork: Network?, 
+        /**
+         * Checks that the given `genesis_hash` matches the one loaded from persistence.
+         */checkGenesisHash: BlockHash?, 
+        /**
+         * Use a custom `lookahead` value.
+         */lookahead: UInt32, 
+        /**
+         * Use a persistent cache of indexed script pubkeys (SPKs).
+         */useSpkCache: Bool) {
+        self.checkNetwork = checkNetwork
+        self.checkGenesisHash = checkGenesisHash
+        self.lookahead = lookahead
+        self.useSpkCache = useSpkCache
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LoadParams: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoadParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoadParams {
+        return
+            try LoadParams(
+                checkNetwork: FfiConverterOptionTypeNetwork.read(from: &buf), 
+                checkGenesisHash: FfiConverterOptionTypeBlockHash.read(from: &buf), 
+                lookahead: FfiConverterUInt32.read(from: &buf), 
+                useSpkCache: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LoadParams, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeNetwork.write(value.checkNetwork, into: &buf)
+        FfiConverterOptionTypeBlockHash.write(value.checkGenesisHash, into: &buf)
+        FfiConverterUInt32.write(value.lookahead, into: &buf)
+        FfiConverterBool.write(value.useSpkCache, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoadParams_lift(_ buf: RustBuffer) throws -> LoadParams {
+    return try FfiConverterTypeLoadParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoadParams_lower(_ value: LoadParams) -> RustBuffer {
+    return FfiConverterTypeLoadParams.lower(value)
+}
+
+
+/**
  * Changes to the local chain
  */
 public struct LocalChainChangeSet {
@@ -13070,6 +14025,8 @@ public struct LocalChainChangeSet {
     public init(changes: [ChainChange]) {
         self.changes = changes
     }
+
+    
 
     
 }
@@ -13169,6 +14126,8 @@ public struct LocalOutput {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13229,6 +14188,8 @@ public struct MerkleProof {
         self.merkle = merkle
         self.pos = pos
     }
+
+    
 
     
 }
@@ -13298,6 +14259,8 @@ public struct OutPoint {
         self.txid = txid
         self.vout = vout
     }
+
+    
 
     
 }
@@ -13418,6 +14381,8 @@ public struct Output {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13484,6 +14449,8 @@ public struct OutputStatus {
         self.vin = vin
         self.status = status
     }
+
+    
 
     
 }
@@ -13567,6 +14534,8 @@ public struct Peer {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13647,6 +14616,8 @@ public struct PreV1WalletKeychain: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13723,6 +14694,8 @@ public struct ProprietaryKey: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13792,6 +14765,8 @@ public struct ScriptAmount {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -13857,6 +14832,8 @@ public struct SentAndReceivedValues {
         self.sent = sent
         self.received = received
     }
+
+    
 
     
 }
@@ -13956,6 +14933,8 @@ public struct ServerFeaturesRes {
         self.hashFunction = hashFunction
         self.pruning = pruning
     }
+
+    
 
     
 }
@@ -14119,6 +15098,8 @@ public struct SignOptions: Equatable, Hashable {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -14195,6 +15176,8 @@ public struct Socks5Proxy {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -14257,6 +15240,8 @@ public struct TapKeyOrigin {
         self.tapLeafHashes = tapLeafHashes
         self.keySource = keySource
     }
+
+    
 
     
 }
@@ -14323,6 +15308,8 @@ public struct TapScriptEntry {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -14387,6 +15374,8 @@ public struct TapScriptSigKey: Equatable, Hashable {
         self.xonlyPubkey = xonlyPubkey
         self.tapLeafHash = tapLeafHash
     }
+
+    
 
     
 }
@@ -14494,6 +15483,8 @@ public struct Tx {
         self.fee = fee
         self.status = status
     }
+
+    
 
     
 }
@@ -14633,6 +15624,8 @@ public struct TxDetails {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -14703,6 +15696,8 @@ public struct TxGraphChangeSet {
         self.firstSeen = firstSeen
         self.lastEvicted = lastEvicted
     }
+
+    
 
     
 }
@@ -14796,6 +15791,8 @@ public struct TxIn {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -14871,6 +15868,8 @@ public struct TxOut {
         self.value = value
         self.scriptPubkey = scriptPubkey
     }
+
+    
 
     
 }
@@ -14956,6 +15955,8 @@ public struct TxStatus {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -15016,6 +16017,8 @@ public struct UnconfirmedTx {
     }
 
     
+
+    
 }
 
 #if compiler(>=6)
@@ -15057,6 +16060,85 @@ public func FfiConverterTypeUnconfirmedTx_lower(_ value: UnconfirmedTx) -> RustB
 
 
 /**
+ * A wallet keychain and its public descriptor.
+ */
+public struct WalletKeychain: CustomStringConvertible {
+    /**
+     * Type of keychain.
+     */
+    public var keychain: KeychainKind
+    /**
+     * Public descriptor for the keychain.
+     */
+    public var publicDescriptor: Descriptor
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Type of keychain.
+         */keychain: KeychainKind, 
+        /**
+         * Public descriptor for the keychain.
+         */publicDescriptor: Descriptor) {
+        self.keychain = keychain
+        self.publicDescriptor = publicDescriptor
+    }
+
+    
+
+    
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_walletkeychain_uniffi_trait_display(
+            FfiConverterTypeWalletKeychain_lower(self),$0
+    )
+}
+    )
+}
+}
+
+#if compiler(>=6)
+extension WalletKeychain: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWalletKeychain: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WalletKeychain {
+        return
+            try WalletKeychain(
+                keychain: FfiConverterTypeKeychainKind.read(from: &buf), 
+                publicDescriptor: FfiConverterTypeDescriptor.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WalletKeychain, into buf: inout [UInt8]) {
+        FfiConverterTypeKeychainKind.write(value.keychain, into: &buf)
+        FfiConverterTypeDescriptor.write(value.publicDescriptor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKeychain_lift(_ buf: RustBuffer) throws -> WalletKeychain {
+    return try FfiConverterTypeWalletKeychain.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKeychain_lower(_ value: WalletKeychain) -> RustBuffer {
+    return FfiConverterTypeWalletKeychain.lower(value)
+}
+
+
+/**
  * The version and program of a Segwit address.
  */
 public struct WitnessProgram: Equatable, Hashable {
@@ -15081,6 +16163,8 @@ public struct WitnessProgram: Equatable, Hashable {
         self.version = version
         self.program = program
     }
+
+    
 
     
 }
@@ -15135,6 +16219,28 @@ public enum AddForeignUtxoError: Swift.Error, Equatable, Hashable, Foundation.Lo
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_addforeignutxoerror_uniffi_trait_debug(
+            FfiConverterTypeAddForeignUtxoError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_addforeignutxoerror_uniffi_trait_display(
+            FfiConverterTypeAddForeignUtxoError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -15242,6 +16348,8 @@ public enum AddressData: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -15328,6 +16436,28 @@ public enum AddressParseError: Swift.Error, Equatable, Hashable, Foundation.Loca
     case OtherAddressParseErr
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_addressparseerror_uniffi_trait_debug(
+            FfiConverterTypeAddressParseError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_addressparseerror_uniffi_trait_display(
+            FfiConverterTypeAddressParseError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -15465,6 +16595,28 @@ public enum Bip32Error: Swift.Error, Equatable, Hashable, Foundation.LocalizedEr
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_bip32error_uniffi_trait_debug(
+            FfiConverterTypeBip32Error_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_bip32error_uniffi_trait_display(
+            FfiConverterTypeBip32Error_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -15617,6 +16769,28 @@ public enum Bip39Error: Swift.Error, Equatable, Hashable, Foundation.LocalizedEr
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_bip39error_uniffi_trait_debug(
+            FfiConverterTypeBip39Error_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_bip39error_uniffi_trait_display(
+            FfiConverterTypeBip39Error_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -15720,6 +16894,28 @@ public enum CalculateFeeError: Swift.Error, Foundation.LocalizedError {
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_calculatefeeerror_uniffi_trait_debug(
+            FfiConverterTypeCalculateFeeError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_calculatefeeerror_uniffi_trait_display(
+            FfiConverterTypeCalculateFeeError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -15800,6 +16996,28 @@ public enum CannotConnectError: Swift.Error, Equatable, Hashable, Foundation.Loc
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_cannotconnecterror_uniffi_trait_debug(
+            FfiConverterTypeCannotConnectError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_cannotconnecterror_uniffi_trait_display(
+            FfiConverterTypeCannotConnectError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -15869,6 +17087,28 @@ public enum CbfError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     case NodeStopped
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_cbferror_uniffi_trait_debug(
+            FfiConverterTypeCbfError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_cbferror_uniffi_trait_display(
+            FfiConverterTypeCbfError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -15955,6 +17195,8 @@ public enum ChainPosition {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -16035,6 +17277,8 @@ public enum ChangeSpendPolicy: Equatable, Hashable {
      * Only use non-change outputs (see [`bdk_wallet::TxBuilder::do_not_spend_change`]).
      */
     case changeForbidden
+
+
 
 
 
@@ -16126,6 +17370,8 @@ public enum ChildNumber: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -16185,6 +17431,102 @@ public func FfiConverterTypeChildNumber_lower(_ value: ChildNumber) -> RustBuffe
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Coin selection algorithm to use when creating a transaction.
+ */
+
+public enum CoinSelectionAlgorithm: Equatable, Hashable {
+    
+    /**
+     * Branch and bound with single random draw fallback.
+     */
+    case branchAndBound
+    /**
+     * Select largest UTXOs first until the target is reached.
+     */
+    case largestFirst
+    /**
+     * Select oldest local UTXOs first until the target is reached.
+     */
+    case oldestFirst
+    /**
+     * Shuffle optional UTXOs and select randomly until the target is reached.
+     */
+    case singleRandomDraw
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CoinSelectionAlgorithm: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCoinSelectionAlgorithm: FfiConverterRustBuffer {
+    typealias SwiftType = CoinSelectionAlgorithm
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CoinSelectionAlgorithm {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .branchAndBound
+        
+        case 2: return .largestFirst
+        
+        case 3: return .oldestFirst
+        
+        case 4: return .singleRandomDraw
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CoinSelectionAlgorithm, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .branchAndBound:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .largestFirst:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .oldestFirst:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .singleRandomDraw:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoinSelectionAlgorithm_lift(_ buf: RustBuffer) throws -> CoinSelectionAlgorithm {
+    return try FfiConverterTypeCoinSelectionAlgorithm.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCoinSelectionAlgorithm_lower(_ value: CoinSelectionAlgorithm) -> RustBuffer {
+    return FfiConverterTypeCoinSelectionAlgorithm.lower(value)
+}
+
+
 
 public enum CreateTxError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -16229,6 +17571,28 @@ public enum CreateTxError: Swift.Error, Equatable, Hashable, Foundation.Localize
     case LockTimeConversionError
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_createtxerror_uniffi_trait_debug(
+            FfiConverterTypeCreateTxError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_createtxerror_uniffi_trait_display(
+            FfiConverterTypeCreateTxError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -16459,6 +17823,28 @@ public enum CreateWithPersistError: Swift.Error, Equatable, Hashable, Foundation
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_createwithpersisterror_uniffi_trait_debug(
+            FfiConverterTypeCreateWithPersistError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_createwithpersisterror_uniffi_trait_display(
+            FfiConverterTypeCreateWithPersistError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -16561,6 +17947,28 @@ public enum DescriptorError: Swift.Error, Equatable, Hashable, Foundation.Locali
     case ExternalAndInternalAreTheSame
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorerror_uniffi_trait_debug(
+            FfiConverterTypeDescriptorError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorerror_uniffi_trait_display(
+            FfiConverterTypeDescriptorError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -16720,6 +18128,28 @@ public enum DescriptorKeyError: Swift.Error, Equatable, Hashable, Foundation.Loc
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorkeyerror_uniffi_trait_debug(
+            FfiConverterTypeDescriptorKeyError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_descriptorkeyerror_uniffi_trait_display(
+            FfiConverterTypeDescriptorKeyError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -16851,6 +18281,8 @@ public enum DescriptorType: Equatable, Hashable {
      * Tr Descriptor
      */
     case tr
+
+
 
 
 
@@ -16997,6 +18429,28 @@ public enum ElectrumError: Swift.Error, Equatable, Hashable, Foundation.Localize
     case RequestAlreadyConsumed
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_electrumerror_uniffi_trait_debug(
+            FfiConverterTypeElectrumError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_electrumerror_uniffi_trait_display(
+            FfiConverterTypeElectrumError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -17200,6 +18654,28 @@ public enum EsploraError: Swift.Error, Equatable, Hashable, Foundation.Localized
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_esploraerror_uniffi_trait_debug(
+            FfiConverterTypeEsploraError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_esploraerror_uniffi_trait_display(
+            FfiConverterTypeEsploraError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -17369,6 +18845,28 @@ public enum ExtractTxError: Swift.Error, Equatable, Hashable, Foundation.Localiz
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_extracttxerror_uniffi_trait_debug(
+            FfiConverterTypeExtractTxError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_extracttxerror_uniffi_trait_display(
+            FfiConverterTypeExtractTxError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -17455,6 +18953,28 @@ public enum FeeRateError: Swift.Error, Equatable, Hashable, Foundation.Localized
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_feerateerror_uniffi_trait_debug(
+            FfiConverterTypeFeeRateError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_feerateerror_uniffi_trait_display(
+            FfiConverterTypeFeeRateError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -17526,6 +19046,28 @@ public enum FromScriptError: Swift.Error, Equatable, Hashable, Foundation.Locali
     case OtherFromScriptErr
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_fromscripterror_uniffi_trait_debug(
+            FfiConverterTypeFromScriptError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_fromscripterror_uniffi_trait_display(
+            FfiConverterTypeFromScriptError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -17618,6 +19160,28 @@ public enum HashParseError: Swift.Error, Equatable, Hashable, Foundation.Localiz
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_hashparseerror_uniffi_trait_debug(
+            FfiConverterTypeHashParseError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_hashparseerror_uniffi_trait_display(
+            FfiConverterTypeHashParseError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -17724,6 +19288,8 @@ public enum Info: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -17815,6 +19381,8 @@ public enum KeychainKind: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -17882,6 +19450,28 @@ public enum LoadWithPersistError: Swift.Error, Equatable, Hashable, Foundation.L
     case CouldNotLoad
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_loadwithpersisterror_uniffi_trait_debug(
+            FfiConverterTypeLoadWithPersistError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_loadwithpersisterror_uniffi_trait_display(
+            FfiConverterTypeLoadWithPersistError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -17967,6 +19557,8 @@ public enum LockTime: Equatable, Hashable {
     )
     case seconds(consensusTime: UInt32
     )
+
+
 
 
 
@@ -18092,6 +19684,28 @@ public enum MiniscriptError: Swift.Error, Equatable, Hashable, Foundation.Locali
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_miniscripterror_uniffi_trait_debug(
+            FfiConverterTypeMiniscriptError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_miniscripterror_uniffi_trait_display(
+            FfiConverterTypeMiniscriptError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -18413,6 +20027,8 @@ public enum Network: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -18505,6 +20121,8 @@ public enum NetworkKind: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -18574,6 +20192,28 @@ public enum ParseAmountError: Swift.Error, Equatable, Hashable, Foundation.Local
     case OtherParseAmountErr
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_parseamounterror_uniffi_trait_debug(
+            FfiConverterTypeParseAmountError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_parseamounterror_uniffi_trait_display(
+            FfiConverterTypeParseAmountError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -18673,6 +20313,28 @@ public enum PersistenceError: Swift.Error, Equatable, Hashable, Foundation.Local
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_persistenceerror_uniffi_trait_debug(
+            FfiConverterTypePersistenceError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_persistenceerror_uniffi_trait_display(
+            FfiConverterTypePersistenceError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -18745,6 +20407,8 @@ public enum PkOrF: Equatable, Hashable {
     )
     case fingerprint(value: String
     )
+
+
 
 
 
@@ -18829,6 +20493,28 @@ public enum PreV1MigrationError: Swift.Error, Equatable, Hashable, Foundation.Lo
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_prev1migrationerror_uniffi_trait_debug(
+            FfiConverterTypePreV1MigrationError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_prev1migrationerror_uniffi_trait_display(
+            FfiConverterTypePreV1MigrationError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -18966,6 +20652,28 @@ public enum PsbtError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErr
     case OtherPsbtErr
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbterror_uniffi_trait_debug(
+            FfiConverterTypePsbtError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbterror_uniffi_trait_display(
+            FfiConverterTypePsbtError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -19240,6 +20948,28 @@ public enum PsbtFinalizeError: Swift.Error, Equatable, Hashable, Foundation.Loca
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtfinalizeerror_uniffi_trait_debug(
+            FfiConverterTypePsbtFinalizeError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtfinalizeerror_uniffi_trait_display(
+            FfiConverterTypePsbtFinalizeError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -19336,6 +21066,28 @@ public enum PsbtParseError: Swift.Error, Equatable, Hashable, Foundation.Localiz
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtparseerror_uniffi_trait_debug(
+            FfiConverterTypePsbtParseError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtparseerror_uniffi_trait_display(
+            FfiConverterTypePsbtParseError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -19418,6 +21170,8 @@ public enum RecoveryPoint {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -19497,6 +21251,28 @@ public enum RequestBuilderError: Swift.Error, Equatable, Hashable, Foundation.Lo
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_requestbuildererror_uniffi_trait_debug(
+            FfiConverterTypeRequestBuilderError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_requestbuildererror_uniffi_trait_display(
+            FfiConverterTypeRequestBuilderError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -19568,6 +21344,8 @@ public enum Satisfaction: Equatable, Hashable {
     )
     case none(msg: String
     )
+
+
 
 
 
@@ -19679,6 +21457,8 @@ public enum SatisfiableItem {
     )
     case thresh(items: [Policy], threshold: UInt64
     )
+
+
 
 
 
@@ -19835,6 +21615,8 @@ public enum ScanType {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -19902,6 +21684,28 @@ public enum SighashParseError: Swift.Error, Equatable, Hashable, Foundation.Loca
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_sighashparseerror_uniffi_trait_debug(
+            FfiConverterTypeSighashParseError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_sighashparseerror_uniffi_trait_display(
+            FfiConverterTypeSighashParseError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -19995,6 +21799,28 @@ public enum SignerError: Swift.Error, Equatable, Hashable, Foundation.LocalizedE
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_signererror_uniffi_trait_debug(
+            FfiConverterTypeSignerError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_signererror_uniffi_trait_display(
+            FfiConverterTypeSignerError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -20171,6 +21997,28 @@ public enum TransactionError: Swift.Error, Equatable, Hashable, Foundation.Local
     
 
     
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_transactionerror_uniffi_trait_debug(
+            FfiConverterTypeTransactionError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_transactionerror_uniffi_trait_display(
+            FfiConverterTypeTransactionError_lower(self),$0
+    )
+}
+    )
+}
+
+    
     public var errorDescription: String? {
         String(reflecting: self)
     }
@@ -20292,6 +22140,8 @@ public enum TxOrdering: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -20356,6 +22206,28 @@ public enum TxidParseError: Swift.Error, Equatable, Hashable, Foundation.Localiz
     )
 
     
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_txidparseerror_uniffi_trait_debug(
+            FfiConverterTypeTxidParseError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_txidparseerror_uniffi_trait_display(
+            FfiConverterTypeTxidParseError_lower(self),$0
+    )
+}
+    )
+}
 
     
     public var errorDescription: String? {
@@ -20522,6 +22394,8 @@ public enum WalletEvent: CustomStringConvertible {
 
 
 
+
+
 // The local Rust `Display` implementation.
 public var description: String {
     return try!  FfiConverterString.lift(
@@ -20677,6 +22551,8 @@ public enum Warning: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -20804,6 +22680,8 @@ public enum WildcardType: Equatable, Hashable {
 
 
 
+
+
 }
 
 #if compiler(>=6)
@@ -20869,6 +22747,8 @@ public enum WordCount: Equatable, Hashable {
     case words18
     case words21
     case words24
+
+
 
 
 
@@ -21988,6 +23868,31 @@ fileprivate struct FfiConverterSequenceTypePolicy: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSignersContainer: FfiConverterRustBuffer {
+    typealias SwiftType = [SignersContainer]
+
+    public static func write(_ value: [SignersContainer], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSignersContainer.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SignersContainer] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SignersContainer]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSignersContainer.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTransaction: FfiConverterRustBuffer {
     typealias SwiftType = [Transaction]
 
@@ -22505,6 +24410,31 @@ fileprivate struct FfiConverterSequenceTypeUnconfirmedTx: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeUnconfirmedTx.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWalletKeychain: FfiConverterRustBuffer {
+    typealias SwiftType = [WalletKeychain]
+
+    public static func write(_ value: [WalletKeychain], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWalletKeychain.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WalletKeychain] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WalletKeychain]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWalletKeychain.read(from: &buf))
         }
         return seq
     }
@@ -23038,922 +24968,985 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_bdkffi_checksum_method_address_is_valid_for_network() != 799) {
+    if (uniffi_bdkffi_checksum_method_address_is_valid_for_network() != 30890) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_address_script_pubkey() != 23663) {
+    if (uniffi_bdkffi_checksum_method_address_script_pubkey() != 18234) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_address_to_address_data() != 6766) {
+    if (uniffi_bdkffi_checksum_method_address_to_address_data() != 31114) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_address_to_qr_uri() != 60630) {
+    if (uniffi_bdkffi_checksum_method_address_to_qr_uri() != 65099) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_amount_to_btc() != 44112) {
+    if (uniffi_bdkffi_checksum_method_amount_to_btc() != 40194) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_amount_to_sat() != 2062) {
+    if (uniffi_bdkffi_checksum_method_amount_to_sat() != 62041) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_blockhash_serialize() != 58329) {
+    if (uniffi_bdkffi_checksum_method_blockhash_serialize() != 31366) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_allow_dust() != 64834) {
+    if (uniffi_bdkffi_checksum_method_descriptorid_serialize() != 27877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_current_height() != 25489) {
+    if (uniffi_bdkffi_checksum_method_feerate_fee_vb() != 44460) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_finish() != 36534) {
+    if (uniffi_bdkffi_checksum_method_feerate_fee_wu() != 23099) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_nlocktime() != 13924) {
+    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_kwu() != 243) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_ordering() != 44953) {
+    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_vb_ceil() != 56650) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_set_exact_sequence() != 13533) {
+    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_vb_floor() != 7457) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_sighash() != 40148) {
+    if (uniffi_bdkffi_checksum_method_hashableoutpoint_outpoint() != 60239) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_version() != 18790) {
+    if (uniffi_bdkffi_checksum_method_leafnode_depth() != 50642) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 4783) {
+    if (uniffi_bdkffi_checksum_method_leafnode_leaf_hash() != 61250) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_configure_timeout_millis() != 41120) {
+    if (uniffi_bdkffi_checksum_method_leafnode_leaf_version() != 20724) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_connections() != 8040) {
+    if (uniffi_bdkffi_checksum_method_leafnode_merkle_branch() != 37320) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_data_dir() != 31903) {
+    if (uniffi_bdkffi_checksum_method_leafnode_node_hash() != 31488) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_peers() != 54701) {
+    if (uniffi_bdkffi_checksum_method_leafnode_script() != 22686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_scan_type() != 58442) {
+    if (uniffi_bdkffi_checksum_method_nodeinfo_leaf_nodes() != 2856) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_socks5_proxy() != 50836) {
+    if (uniffi_bdkffi_checksum_method_nodeinfo_node_hash() != 56814) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_average_fee_rate() != 26767) {
+    if (uniffi_bdkffi_checksum_method_psbt_combine() != 20485) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 56213) {
+    if (uniffi_bdkffi_checksum_method_psbt_extract_tx() != 52041) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_connect() != 2287) {
+    if (uniffi_bdkffi_checksum_method_psbt_extract_tx_unchecked_fee_rate() != 43672) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_is_running() != 22584) {
+    if (uniffi_bdkffi_checksum_method_psbt_extract_tx_with_fee_rate_limit() != 41224) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 27293) {
+    if (uniffi_bdkffi_checksum_method_psbt_fee() != 43686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_min_broadcast_feerate() != 31908) {
+    if (uniffi_bdkffi_checksum_method_psbt_finalize() != 47704) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 61206) {
+    if (uniffi_bdkffi_checksum_method_psbt_input() != 39757) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_next_warning() != 38083) {
+    if (uniffi_bdkffi_checksum_method_psbt_json_serialize() != 47538) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_peer_info() != 44367) {
+    if (uniffi_bdkffi_checksum_method_psbt_output() != 51102) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_shutdown() != 21067) {
+    if (uniffi_bdkffi_checksum_method_psbt_serialize() != 19175) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_update() != 59279) {
+    if (uniffi_bdkffi_checksum_method_psbt_spend_utxo() != 47096) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfnode_run() != 61383) {
+    if (uniffi_bdkffi_checksum_method_psbt_write_to_file() != 62067) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_change_descriptor() != 60265) {
+    if (uniffi_bdkffi_checksum_method_script_to_bytes() != 7847) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_descriptor() != 8527) {
+    if (uniffi_bdkffi_checksum_method_taptree_node_info() != 50395) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_indexer_changeset() != 12024) {
+    if (uniffi_bdkffi_checksum_method_taptree_root_hash() != 25589) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_localchain_changeset() != 8072) {
+    if (uniffi_bdkffi_checksum_method_transaction_compute_txid() != 48853) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_locked_outpoints_changeset() != 13723) {
+    if (uniffi_bdkffi_checksum_method_transaction_compute_wtxid() != 60721) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_network() != 12695) {
+    if (uniffi_bdkffi_checksum_method_transaction_input() != 59792) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_changeset_tx_graph_changeset() != 51559) {
+    if (uniffi_bdkffi_checksum_method_transaction_is_coinbase() != 13039) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_child() != 5505) {
+    if (uniffi_bdkffi_checksum_method_transaction_is_explicitly_rbf() != 58371) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_extend() != 7431) {
+    if (uniffi_bdkffi_checksum_method_transaction_is_lock_time_enabled() != 36378) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_is_empty() != 7158) {
+    if (uniffi_bdkffi_checksum_method_transaction_lock_time() != 53168) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_is_master() != 46604) {
+    if (uniffi_bdkffi_checksum_method_transaction_output() != 5515) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_len() != 25050) {
+    if (uniffi_bdkffi_checksum_method_transaction_serialize() != 58514) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_derivationpath_to_u32_vec() != 55613) {
+    if (uniffi_bdkffi_checksum_method_transaction_total_size() != 14254) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_derive_address() != 738) {
+    if (uniffi_bdkffi_checksum_method_transaction_version() != 50504) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_desc_type() != 22274) {
+    if (uniffi_bdkffi_checksum_method_transaction_vsize() != 60139) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_descriptor_id() != 35226) {
+    if (uniffi_bdkffi_checksum_method_transaction_weight() != 53456) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_has_wildcard() != 8561) {
+    if (uniffi_bdkffi_checksum_method_txmerklenode_serialize() != 40859) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_is_multipath() != 24851) {
+    if (uniffi_bdkffi_checksum_method_txid_serialize() != 2898) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_max_weight_to_satisfy() != 27840) {
+    if (uniffi_bdkffi_checksum_method_wtxid_serialize() != 34428) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_sanity_check() != 48829) {
+    if (uniffi_bdkffi_checksum_method_descriptor_as_public() != 39876) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_to_single_descriptors() != 24048) {
+    if (uniffi_bdkffi_checksum_method_descriptor_derive_address() != 61971) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptor_to_string_with_secret() != 44538) {
+    if (uniffi_bdkffi_checksum_method_descriptor_desc_type() != 46252) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorid_serialize() != 36044) {
+    if (uniffi_bdkffi_checksum_method_descriptor_descriptor_id() != 41290) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_add_wildcard() != 45959) {
+    if (uniffi_bdkffi_checksum_method_descriptor_has_wildcard() != 6404) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_derive() != 53424) {
+    if (uniffi_bdkffi_checksum_method_descriptor_is_multipath() != 9821) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_extend() != 11343) {
+    if (uniffi_bdkffi_checksum_method_descriptor_max_weight_to_satisfy() != 49430) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_is_multipath() != 23614) {
+    if (uniffi_bdkffi_checksum_method_descriptor_sanity_check() != 17333) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_master_fingerprint() != 43604) {
+    if (uniffi_bdkffi_checksum_method_descriptor_to_single_descriptors() != 62521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_add_wildcard() != 51182) {
+    if (uniffi_bdkffi_checksum_method_descriptor_to_string_with_secret() != 63016) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_as_public() != 40418) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_block_header() != 403) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_derive() != 17313) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_block_headers_pop() != 6216) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_extend() != 24206) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_block_headers_subscribe() != 46422) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_secret_bytes() != 44537) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_estimate_fee() != 41300) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_block_header() != 40941) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_fetch_tx() != 63956) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_block_headers_pop() != 59765) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_full_scan() != 51233) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_block_headers_subscribe() != 27583) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_ping() != 34274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_estimate_fee() != 55819) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_relay_fee() != 22615) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_fetch_tx() != 42705) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_server_features() != 31855) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_full_scan() != 12661) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_sync() != 53553) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_ping() != 41284) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_transaction_broadcast() != 22588) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_relay_fee() != 48461) {
+    if (uniffi_bdkffi_checksum_method_electrumclient_transaction_get_raw() != 53885) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_server_features() != 31597) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_broadcast() != 15404) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_sync() != 55678) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_full_scan() != 43772) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_transaction_broadcast() != 24746) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_address_txs() != 9138) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_electrumclient_transaction_get_raw() != 40139) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_block_by_hash() != 36105) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_broadcast() != 45367) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_block_hash() != 34710) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_full_scan() != 19768) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_fee_estimates() != 35693) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_address_txs() != 48405) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_header_by_hash() != 6354) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_block_by_hash() != 37831) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_height() != 39221) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_block_hash() != 37777) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_merkle_proof() != 28557) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_fee_estimates() != 62859) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_output_status() != 17838) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_header_by_hash() != 3393) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_tip_hash() != 53617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_height() != 26148) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx() != 38640) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_merkle_proof() != 47651) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_info() != 64848) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_output_status() != 2279) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_no_opt() != 18254) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_tip_hash() != 24029) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_status() != 19468) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx() != 51222) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_get_txid_at_block_index() != 60780) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_info() != 59479) {
+    if (uniffi_bdkffi_checksum_method_esploraclient_sync() != 44307) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_no_opt() != 36413) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_child() != 60852) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_tx_status() != 61956) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_extend() != 21422) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_get_txid_at_block_index() != 54194) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_is_empty() != 7569) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_esploraclient_sync() != 21097) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_is_master() != 4824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_feerate_fee_vb() != 13312) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_len() != 3682) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_feerate_fee_wu() != 37154) {
+    if (uniffi_bdkffi_checksum_method_derivationpath_to_u32_vec() != 26067) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_kwu() != 61714) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_add_wildcard() != 20038) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_vb_ceil() != 54521) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_derive() != 37291) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_feerate_to_sat_per_vb_floor() != 56773) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_extend() != 26024) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_fullscanrequestbuilder_build() != 5585) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_is_multipath() != 65227) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_fullscanrequestbuilder_inspect_spks_for_all_keychains() != 43667) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_master_fingerprint() != 18703) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_fullscanscriptinspector_inspect() != 36414) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_add_wildcard() != 22934) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_hashableoutpoint_outpoint() != 21921) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_as_public() != 58317) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_depth() != 16190) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_derive() != 52719) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_leaf_hash() != 18725) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_extend() != 5227) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_leaf_version() != 52940) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_secret_bytes() != 39358) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_merkle_branch() != 6578) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 30647) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_node_hash() != 44601) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_configure_timeout_millis() != 25596) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_leafnode_script() != 7899) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_connections() != 48760) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_nodeinfo_leaf_nodes() != 12922) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_data_dir() != 59862) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_nodeinfo_node_hash() != 61900) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_only_configured_peers() != 11621) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_persistence_initialize() != 9283) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_peers() != 25020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_persistence_persist() != 29474) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_scan_type() != 45058) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_persister_get_pre_v1_wallet_keychains() != 5125) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_socks5_proxy() != 59058) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_as_string() != 42734) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_average_fee_rate() != 24421) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_contribution() != 11262) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_broadcast() != 7870) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_id() != 23964) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_connect() != 29023) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_item() != 6003) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_is_running() != 3810) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_requires_path() != 4187) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_lookup_host() != 29744) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_policy_satisfaction() != 46765) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_min_broadcast_feerate() != 47318) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_combine() != 42075) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_next_info() != 9938) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_extract_tx() != 26653) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_next_warning() != 61281) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_fee() != 30353) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_peer_info() != 62164) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_finalize() != 51031) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_shutdown() != 52518) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_input() != 48443) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_update() != 43120) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_json_serialize() != 25111) {
+    if (uniffi_bdkffi_checksum_method_cbfnode_run() != 28472) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_output() != 60764) {
+    if (uniffi_bdkffi_checksum_method_signerscontainer_is_empty() != 1291) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_serialize() != 9376) {
+    if (uniffi_bdkffi_checksum_method_signerscontainer_len() != 54233) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_spend_utxo() != 12381) {
+    if (uniffi_bdkffi_checksum_method_persistence_initialize() != 14172) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_psbt_write_to_file() != 17670) {
+    if (uniffi_bdkffi_checksum_method_persistence_persist() != 52008) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_script_to_bytes() != 64817) {
+    if (uniffi_bdkffi_checksum_method_persister_get_pre_v1_wallet_keychains() != 45893) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_syncrequestbuilder_build() != 26747) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_allow_dust() != 22484) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_syncrequestbuilder_inspect_spks() != 38063) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_current_height() != 15179) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_syncscriptinspector_inspect() != 63115) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_finish() != 29690) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_taptree_node_info() != 19028) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_nlocktime() != 52003) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_taptree_root_hash() != 12196) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_ordering() != 4177) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_compute_txid() != 4600) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_set_exact_sequence() != 16119) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_compute_wtxid() != 59414) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_sighash() != 44437) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_input() != 17971) {
+    if (uniffi_bdkffi_checksum_method_bumpfeetxbuilder_version() != 10747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_is_coinbase() != 52376) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_data() != 9292) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_is_explicitly_rbf() != 33467) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_foreign_utxo() != 33241) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_is_lock_time_enabled() != 17927) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_foreign_utxo_with_sequence() != 35516) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_lock_time() != 11673) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_global_xpubs() != 55106) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_output() != 18641) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_recipient() != 27510) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_serialize() != 63746) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_unspendable() != 18279) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_total_size() != 32499) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_utxo() != 60021) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_version() != 57173) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_add_utxos() != 59090) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_vsize() != 23751) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_allow_dust() != 35871) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_transaction_weight() != 22642) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_change_policy() != 48592) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_data() != 3485) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_coin_selection() != 51971) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_foreign_utxo() != 40546) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_current_height() != 9602) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_foreign_utxo_with_sequence() != 50071) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_do_not_spend_change() != 33744) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_global_xpubs() != 60600) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_drain_to() != 34439) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_recipient() != 38261) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_drain_wallet() != 44540) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_unspendable() != 42556) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_below_confirmations() != 43816) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_utxo() != 55155) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_unconfirmed() != 22237) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_add_utxos() != 36635) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_fee_absolute() != 17131) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_allow_dust() != 36330) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_fee_rate() != 7259) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_change_policy() != 33210) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_finish() != 3060) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_current_height() != 25990) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_manually_selected_only() != 47306) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_do_not_spend_change() != 279) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_nlocktime() != 43939) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_drain_to() != 19958) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_only_spend_change() != 40397) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_drain_wallet() != 21886) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_only_witness_utxo() != 47344) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_below_confirmations() != 24447) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_ordering() != 46246) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_exclude_unconfirmed() != 30391) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_policy_path() != 41515) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_fee_absolute() != 6920) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_set_exact_sequence() != 32594) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_fee_rate() != 42880) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_set_recipients() != 63436) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_finish() != 43504) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_sighash() != 40747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_manually_selected_only() != 17632) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_unspendable() != 7023) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_nlocktime() != 61968) {
+    if (uniffi_bdkffi_checksum_method_txbuilder_version() != 17490) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_only_spend_change() != 2625) {
+    if (uniffi_bdkffi_checksum_method_changeset_change_descriptor() != 1961) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_only_witness_utxo() != 15710) {
+    if (uniffi_bdkffi_checksum_method_changeset_descriptor() != 4635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_ordering() != 52078) {
+    if (uniffi_bdkffi_checksum_method_changeset_indexer_changeset() != 62931) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_policy_path() != 36425) {
+    if (uniffi_bdkffi_checksum_method_changeset_localchain_changeset() != 2781) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_set_exact_sequence() != 11338) {
+    if (uniffi_bdkffi_checksum_method_changeset_locked_outpoints_changeset() != 12530) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_set_recipients() != 8653) {
+    if (uniffi_bdkffi_checksum_method_changeset_network() != 2339) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_sighash() != 60089) {
+    if (uniffi_bdkffi_checksum_method_changeset_tx_graph_changeset() != 6389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_unspendable() != 59793) {
+    if (uniffi_bdkffi_checksum_method_fullscanrequestbuilder_build() != 49763) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txbuilder_version() != 53704) {
+    if (uniffi_bdkffi_checksum_method_fullscanrequestbuilder_inspect_spks_for_all_keychains() != 49286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txmerklenode_serialize() != 6758) {
+    if (uniffi_bdkffi_checksum_method_fullscanscriptinspector_inspect() != 25170) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_txid_serialize() != 15501) {
+    if (uniffi_bdkffi_checksum_method_policy_as_string() != 20153) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs() != 47441) {
+    if (uniffi_bdkffi_checksum_method_policy_contribution() != 6387) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs_events() != 26624) {
+    if (uniffi_bdkffi_checksum_method_policy_id() != 42190) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs() != 61391) {
+    if (uniffi_bdkffi_checksum_method_policy_item() != 55259) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs_events() != 88) {
+    if (uniffi_bdkffi_checksum_method_policy_requires_path() != 52484) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_update() != 14059) {
+    if (uniffi_bdkffi_checksum_method_policy_satisfaction() != 53347) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_apply_update_events() != 36003) {
+    if (uniffi_bdkffi_checksum_method_syncrequestbuilder_build() != 1199) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_balance() != 1065) {
+    if (uniffi_bdkffi_checksum_method_syncrequestbuilder_inspect_spks() != 31177) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_calculate_fee() != 62842) {
+    if (uniffi_bdkffi_checksum_method_syncscriptinspector_inspect() != 53256) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_calculate_fee_rate() != 52109) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs() != 54143) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_checkpoints() != 30881) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_evicted_txs_events() != 38587) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_derivation_index() != 17133) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs() != 7491) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_derivation_of_spk() != 57131) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_unconfirmed_txs_events() != 61241) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_descriptor_checksum() != 65455) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_update() != 33931) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_finalize_psbt() != 37754) {
+    if (uniffi_bdkffi_checksum_method_wallet_apply_update_events() != 21482) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_get_tx() != 23045) {
+    if (uniffi_bdkffi_checksum_method_wallet_balance() != 45383) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_get_utxo() != 31901) {
+    if (uniffi_bdkffi_checksum_method_wallet_calculate_fee() != 36580) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_insert_txout() != 63010) {
+    if (uniffi_bdkffi_checksum_method_wallet_calculate_fee_rate() != 40410) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_is_mine() != 12109) {
+    if (uniffi_bdkffi_checksum_method_wallet_checkpoints() != 21770) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_is_outpoint_locked() != 64727) {
+    if (uniffi_bdkffi_checksum_method_wallet_derivation_index() != 8829) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_latest_checkpoint() != 15617) {
+    if (uniffi_bdkffi_checksum_method_wallet_derivation_of_spk() != 58104) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_list_locked_outpoints() != 56619) {
+    if (uniffi_bdkffi_checksum_method_wallet_descriptor_checksum() != 10006) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_list_locked_unspent() != 35887) {
+    if (uniffi_bdkffi_checksum_method_wallet_finalize_psbt() != 44890) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_list_output() != 28293) {
+    if (uniffi_bdkffi_checksum_method_wallet_get_tx() != 45827) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_list_unspent() != 38160) {
+    if (uniffi_bdkffi_checksum_method_wallet_get_utxo() != 29298) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_list_unused_addresses() != 43002) {
+    if (uniffi_bdkffi_checksum_method_wallet_insert_txout() != 38167) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_lock_outpoint() != 40483) {
+    if (uniffi_bdkffi_checksum_method_wallet_is_mine() != 33801) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_mark_used() != 53437) {
+    if (uniffi_bdkffi_checksum_method_wallet_is_outpoint_locked() != 45365) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_network() != 61015) {
+    if (uniffi_bdkffi_checksum_method_wallet_keychains() != 59747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_next_derivation_index() != 54301) {
+    if (uniffi_bdkffi_checksum_method_wallet_latest_checkpoint() != 58391) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_next_unused_address() != 64390) {
+    if (uniffi_bdkffi_checksum_method_wallet_list_locked_outpoints() != 16510) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_peek_address() != 33286) {
+    if (uniffi_bdkffi_checksum_method_wallet_list_locked_unspent() != 58540) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_persist() != 45543) {
+    if (uniffi_bdkffi_checksum_method_wallet_list_output() != 51772) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_policies() != 10593) {
+    if (uniffi_bdkffi_checksum_method_wallet_list_unspent() != 2003) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_public_descriptor() != 58017) {
+    if (uniffi_bdkffi_checksum_method_wallet_list_unused_addresses() != 18103) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_reveal_addresses_to() != 39125) {
+    if (uniffi_bdkffi_checksum_method_wallet_lock_outpoint() != 36111) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_reveal_next_address() != 21378) {
+    if (uniffi_bdkffi_checksum_method_wallet_mark_used() != 60554) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_sent_and_received() != 55583) {
+    if (uniffi_bdkffi_checksum_method_wallet_network() != 63575) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_sign() != 45596) {
+    if (uniffi_bdkffi_checksum_method_wallet_next_derivation_index() != 27833) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_staged() != 59474) {
+    if (uniffi_bdkffi_checksum_method_wallet_next_unused_address() != 58575) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_start_full_scan() != 29628) {
+    if (uniffi_bdkffi_checksum_method_wallet_peek_address() != 12384) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_start_full_scan_at() != 34282) {
+    if (uniffi_bdkffi_checksum_method_wallet_persist() != 50619) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks() != 37305) {
+    if (uniffi_bdkffi_checksum_method_wallet_policies() != 14934) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks_at() != 55232) {
+    if (uniffi_bdkffi_checksum_method_wallet_public_descriptor() != 14280) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_take_staged() != 49180) {
+    if (uniffi_bdkffi_checksum_method_wallet_reveal_addresses_to() != 32268) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_transactions() != 45722) {
+    if (uniffi_bdkffi_checksum_method_wallet_reveal_next_address() != 5511) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_tx_details() != 21865) {
+    if (uniffi_bdkffi_checksum_method_wallet_sent_and_received() != 41079) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_unlock_outpoint() != 16318) {
+    if (uniffi_bdkffi_checksum_method_wallet_sign() != 22965) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wallet_unmark_used() != 41613) {
+    if (uniffi_bdkffi_checksum_method_wallet_sign_with_signers() != 27932) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_wtxid_serialize() != 29733) {
+    if (uniffi_bdkffi_checksum_method_wallet_staged() != 36466) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_address_from_script() != 63311) {
+    if (uniffi_bdkffi_checksum_method_wallet_start_full_scan() != 56813) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_address_new() != 15543) {
+    if (uniffi_bdkffi_checksum_method_wallet_start_full_scan_at() != 52616) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_amount_from_btc() != 43617) {
+    if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks() != 5838) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_amount_from_sat() != 18287) {
+    if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks_at() != 19510) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_blockhash_from_bytes() != 58986) {
+    if (uniffi_bdkffi_checksum_method_wallet_take_staged() != 62384) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_blockhash_from_string() != 55044) {
+    if (uniffi_bdkffi_checksum_method_wallet_transactions() != 57031) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_bumpfeetxbuilder_new() != 17822) {
+    if (uniffi_bdkffi_checksum_method_wallet_tx_details() != 30143) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_cbfbuilder_new() != 33361) {
+    if (uniffi_bdkffi_checksum_method_wallet_unlock_outpoint() != 24549) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_aggregate() != 32936) {
+    if (uniffi_bdkffi_checksum_method_wallet_unmark_used() != 37818) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_aggregate_with_locked_outpoints() != 49250) {
+    if (uniffi_bdkffi_checksum_constructor_address_from_script() != 25444) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_descriptor_and_network() != 39614) {
+    if (uniffi_bdkffi_checksum_constructor_address_new() != 17522) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_indexer_changeset() != 52453) {
+    if (uniffi_bdkffi_checksum_constructor_amount_from_btc() != 33008) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_local_chain_changes() != 14452) {
+    if (uniffi_bdkffi_checksum_constructor_amount_from_sat() != 50788) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_locked_outpoints_changeset() != 4039) {
+    if (uniffi_bdkffi_checksum_constructor_blockhash_from_bytes() != 29362) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_merge() != 41467) {
+    if (uniffi_bdkffi_checksum_constructor_blockhash_from_string() != 35362) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_from_tx_graph_changeset() != 31574) {
+    if (uniffi_bdkffi_checksum_constructor_descriptorid_from_bytes() != 24359) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_changeset_new() != 22000) {
+    if (uniffi_bdkffi_checksum_constructor_descriptorid_from_string() != 2886) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_derivationpath_master() != 32930) {
+    if (uniffi_bdkffi_checksum_constructor_feerate_from_sat_per_kwu() != 13030) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_derivationpath_new() != 30769) {
+    if (uniffi_bdkffi_checksum_constructor_feerate_from_sat_per_vb() != 7665) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new() != 2999) {
+    if (uniffi_bdkffi_checksum_constructor_hashableoutpoint_new() != 15539) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bare() != 43563) {
+    if (uniffi_bdkffi_checksum_constructor_psbt_from_file() != 16826) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44() != 7469) {
+    if (uniffi_bdkffi_checksum_constructor_psbt_from_unsigned_tx() != 56824) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44_public() != 41800) {
+    if (uniffi_bdkffi_checksum_constructor_psbt_new() != 19152) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49() != 38176) {
+    if (uniffi_bdkffi_checksum_constructor_script_new() != 21829) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49_public() != 9732) {
+    if (uniffi_bdkffi_checksum_constructor_transaction_new() != 197) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84() != 28308) {
+    if (uniffi_bdkffi_checksum_constructor_txmerklenode_from_bytes() != 51888) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84_public() != 956) {
+    if (uniffi_bdkffi_checksum_constructor_txmerklenode_from_string() != 48463) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86() != 39830) {
+    if (uniffi_bdkffi_checksum_constructor_txid_from_bytes() != 38555) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86_public() != 64132) {
+    if (uniffi_bdkffi_checksum_constructor_txid_from_string() != 49204) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_pk() != 63775) {
+    if (uniffi_bdkffi_checksum_constructor_wtxid_from_bytes() != 48379) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_pkh() != 2484) {
+    if (uniffi_bdkffi_checksum_constructor_wtxid_from_string() != 63259) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh() != 50258) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new() != 14115) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_sortedmulti() != 14205) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bare() != 52837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wpkh() != 28809) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44() != 12805) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wsh() != 10355) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip44_public() != 26418) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wsh_sortedmulti() != 45664) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49() != 24686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wpkh() != 14259) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip49_public() != 10630) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wsh() != 43753) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84() != 54771) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wsh_sortedmulti() != 25601) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip84_public() != 12781) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptorid_from_bytes() != 7595) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86() != 60140) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptorid_from_string() != 26289) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_bip86_public() != 49905) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptorpublickey_from_string() != 45545) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_pk() != 5431) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptorsecretkey_from_string() != 11133) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_pkh() != 31527) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_descriptorsecretkey_new() != 29771) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh() != 23694) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_electrumclient_new() != 11300) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_sortedmulti() != 292) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_esploraclient_new() != 3197) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_with_wpkh() != 16288) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_feerate_from_sat_per_kwu() != 13519) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_with_wsh() != 2556) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_feerate_from_sat_per_vb() != 42959) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wpkh() != 26052) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_hashableoutpoint_new() != 16705) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wsh() != 47512) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_ipaddress_from_ipv4() != 14635) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_sh_wsh_sortedmulti() != 10401) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_ipaddress_from_ipv6() != 31033) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_tr() != 22930) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_mnemonic_from_entropy() != 812) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wpkh() != 51725) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_mnemonic_from_string() != 30002) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wsh() != 20989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_mnemonic_new() != 11901) {
+    if (uniffi_bdkffi_checksum_constructor_descriptor_new_wsh_sortedmulti() != 39000) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_persister_custom() != 31182) {
+    if (uniffi_bdkffi_checksum_constructor_electrumclient_new() != 19489) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_persister_new_in_memory() != 62085) {
+    if (uniffi_bdkffi_checksum_constructor_esploraclient_new() != 43561) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_persister_new_sqlite() != 14945) {
+    if (uniffi_bdkffi_checksum_constructor_derivationpath_master() != 22470) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_psbt_from_file() != 48265) {
+    if (uniffi_bdkffi_checksum_constructor_derivationpath_new() != 50490) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_psbt_from_unsigned_tx() != 6265) {
+    if (uniffi_bdkffi_checksum_constructor_descriptorpublickey_from_string() != 26709) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_psbt_new() != 6279) {
+    if (uniffi_bdkffi_checksum_constructor_descriptorsecretkey_from_string() != 56191) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_script_new() != 53899) {
+    if (uniffi_bdkffi_checksum_constructor_descriptorsecretkey_new() != 43011) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_transaction_new() != 50797) {
+    if (uniffi_bdkffi_checksum_constructor_mnemonic_from_entropy() != 62671) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_txbuilder_new() != 20554) {
+    if (uniffi_bdkffi_checksum_constructor_mnemonic_from_string() != 17487) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_txmerklenode_from_bytes() != 62268) {
+    if (uniffi_bdkffi_checksum_constructor_mnemonic_new() != 20878) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_txmerklenode_from_string() != 34111) {
+    if (uniffi_bdkffi_checksum_constructor_cbfbuilder_new() != 39401) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_txid_from_bytes() != 24877) {
+    if (uniffi_bdkffi_checksum_constructor_ipaddress_from_ipv4() != 33276) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_txid_from_string() != 39405) {
+    if (uniffi_bdkffi_checksum_constructor_ipaddress_from_ipv6() != 9782) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_create_from_two_path_descriptor() != 61620) {
+    if (uniffi_bdkffi_checksum_constructor_signerscontainer_from_descriptor() != 44355) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_create_single() != 55224) {
+    if (uniffi_bdkffi_checksum_constructor_signerscontainer_from_descriptor_with_context() != 38487) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 26636) {
+    if (uniffi_bdkffi_checksum_constructor_persister_custom() != 59293) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_load_single() != 2793) {
+    if (uniffi_bdkffi_checksum_constructor_persister_new_in_memory() != 29837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wallet_new() != 55622) {
+    if (uniffi_bdkffi_checksum_constructor_persister_new_sqlite() != 60452) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wtxid_from_bytes() != 34456) {
+    if (uniffi_bdkffi_checksum_constructor_bumpfeetxbuilder_new() != 52203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_wtxid_from_string() != 20341) {
+    if (uniffi_bdkffi_checksum_constructor_txbuilder_new() != 34738) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_aggregate() != 9970) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_aggregate_with_locked_outpoints() != 18841) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_descriptor_and_network() != 49561) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_indexer_changeset() != 15022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_local_chain_changes() != 51950) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_locked_outpoints_changeset() != 21915) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_merge() != 64193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_from_tx_graph_changeset() != 6374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_changeset_new() != 10268) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_from_two_path_descriptor() != 60114) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_from_two_path_descriptor_with_params() != 7374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_single() != 57436) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_single_with_params() != 56965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_create_with_params() != 27468) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load() != 59937) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_from_two_path_descriptor() != 50344) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_from_two_path_descriptor_with_params() != 65067) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_single() != 34511) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_single_with_params() != 56656) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_load_with_params() != 64719) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_constructor_wallet_new() != 1514) {
         return InitializationResult.apiChecksumMismatch
     }
 
