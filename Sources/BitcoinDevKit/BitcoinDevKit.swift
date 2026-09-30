@@ -3738,6 +3738,10 @@ public protocol DescriptorPublicKeyProtocol: AnyObject, Sendable {
     
     /**
      * Derive the descriptor public key at the given derivation path.
+     *
+     * Any derivation path already recorded on this key (for example from `extend()` or from
+     * parsing a key such as `xpub.../0`) is applied first, so the result is the key at
+     * `<existing path>/<path>`.
      */
     func derive(path: DerivationPath) throws  -> DescriptorPublicKey
     
@@ -3841,6 +3845,10 @@ open func addWildcard()throws  -> DescriptorPublicKey  {
     
     /**
      * Derive the descriptor public key at the given derivation path.
+     *
+     * Any derivation path already recorded on this key (for example from `extend()` or from
+     * parsing a key such as `xpub.../0`) is applied first, so the result is the key at
+     * `<existing path>/<path>`.
      */
 open func derive(path: DerivationPath)throws  -> DescriptorPublicKey  {
     return try  FfiConverterTypeDescriptorPublicKey_lift(try rustCallWithError(FfiConverterTypeDescriptorKeyError_lift) {
@@ -3975,6 +3983,10 @@ public protocol DescriptorSecretKeyProtocol: AnyObject, Sendable {
     
     /**
      * Derive a descriptor secret key at a given derivation path.
+     *
+     * Any derivation path already recorded on this key (for example from `extend()` or from
+     * parsing a key such as `xprv.../84h/1h/0h`) is applied first, so the result is the key at
+     * `<existing path>/<path>`.
      */
     func derive(path: DerivationPath) throws  -> DescriptorSecretKey
     
@@ -3985,6 +3997,14 @@ public protocol DescriptorSecretKeyProtocol: AnyObject, Sendable {
     
     /**
      * Return the bytes of this descriptor secret key.
+     *
+     * For an extended private key, the key is derived along the derivation path it carries
+     * before its bytes are returned.
+     *
+     * A key carrying a wildcard (`*` or `*h`) or a multipath key (one with a step such as
+     * `<0;1>`) names a family of keys rather than a single key, so an empty vector is returned
+     * for it. An empty vector is also returned if the derivation would exceed the maximum BIP-32
+     * depth.
      */
     func secretBytes()  -> Data
     
@@ -4097,6 +4117,10 @@ open func asPublic() -> DescriptorPublicKey  {
     
     /**
      * Derive a descriptor secret key at a given derivation path.
+     *
+     * Any derivation path already recorded on this key (for example from `extend()` or from
+     * parsing a key such as `xprv.../84h/1h/0h`) is applied first, so the result is the key at
+     * `<existing path>/<path>`.
      */
 open func derive(path: DerivationPath)throws  -> DescriptorSecretKey  {
     return try  FfiConverterTypeDescriptorSecretKey_lift(try rustCallWithError(FfiConverterTypeDescriptorKeyError_lift) {
@@ -4121,6 +4145,14 @@ open func extend(path: DerivationPath)throws  -> DescriptorSecretKey  {
     
     /**
      * Return the bytes of this descriptor secret key.
+     *
+     * For an extended private key, the key is derived along the derivation path it carries
+     * before its bytes are returned.
+     *
+     * A key carrying a wildcard (`*` or `*h`) or a multipath key (one with a step such as
+     * `<0;1>`) names a family of keys rather than a single key, so an empty vector is returned
+     * for it. An empty vector is also returned if the derivation would exceed the maximum BIP-32
+     * depth.
      */
 open func secretBytes() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
@@ -25265,7 +25297,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_descriptorpublickey_add_wildcard() != 20038) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorpublickey_derive() != 37291) {
+    if (uniffi_bdkffi_checksum_method_descriptorpublickey_derive() != 3641) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptorpublickey_extend() != 26024) {
@@ -25283,13 +25315,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_descriptorsecretkey_as_public() != 58317) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_derive() != 52719) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_derive() != 41462) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_descriptorsecretkey_extend() != 5227) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_secret_bytes() != 39358) {
+    if (uniffi_bdkffi_checksum_method_descriptorsecretkey_secret_bytes() != 23927) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_build() != 30647) {
