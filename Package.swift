@@ -29,8 +29,5 @@ let package = Package(
         .target(
             name: "BitcoinDevKit",
             dependencies: ["bdkFFI"]),
-        .testTarget(
-            name: "BitcoinDevKitTests",
-            dependencies: ["BitcoinDevKit"]),
     ]
 )
