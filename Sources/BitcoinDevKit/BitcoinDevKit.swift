@@ -537,22 +537,6 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
-    typealias FfiType = Float
-    typealias SwiftType = Float
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
-        return try lift(readFloat(&buf))
-    }
-
-    public static func write(_ value: Float, into buf: inout [UInt8]) {
-        writeFloat(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -1592,7 +1576,6 @@ public func FfiConverterTypeBumpFeeTxBuilder_lower(_ value: BumpFeeTxBuilder) ->
  * * List of `Peer`: Bitcoin full-nodes for the light client to connect to. May be empty.
  * * `connections`: The number of connections for the light client to maintain.
  * * `scan_type`: Sync, recover, or start a new wallet. For more information see [`ScanType`].
- * * `data_dir`: Optional directory to store block headers and peers.
  *
  * A note on recovering wallets. Developers should allow users to provide an
  * approximate recovery height and an estimated number of transactions for the
@@ -1620,10 +1603,12 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
     func connections(connections: UInt8)  -> CbfBuilder
     
     /**
-     * Directory to store block headers and peers. If none is provided, the current
-     * working directory will be used.
+     * Return an [`Update`] from [`CbfClient::update`] each time `blocks` blocks are scanned
+     * before the tip, in addition to the update at the tip. Each intermediate update ends at the
+     * last block scanned, which allows a wallet to apply partial results during a long sync or
+     * recovery. `blocks` is clamped to at least one.
      */
-    func dataDir(dataDir: String)  -> CbfBuilder
+    func emitUpdateEveryNBlocks(blocks: UInt32)  -> CbfBuilder
     
     /**
      * When set, only connect to peers configured at build time. This will skip DNS and will not
@@ -1656,7 +1641,6 @@ public protocol CbfBuilderProtocol: AnyObject, Sendable {
  * * List of `Peer`: Bitcoin full-nodes for the light client to connect to. May be empty.
  * * `connections`: The number of connections for the light client to maintain.
  * * `scan_type`: Sync, recover, or start a new wallet. For more information see [`ScanType`].
- * * `data_dir`: Optional directory to store block headers and peers.
  *
  * A note on recovering wallets. Developers should allow users to provide an
  * approximate recovery height and an estimated number of transactions for the
@@ -1767,14 +1751,16 @@ open func connections(connections: UInt8) -> CbfBuilder  {
 }
     
     /**
-     * Directory to store block headers and peers. If none is provided, the current
-     * working directory will be used.
+     * Return an [`Update`] from [`CbfClient::update`] each time `blocks` blocks are scanned
+     * before the tip, in addition to the update at the tip. Each intermediate update ends at the
+     * last block scanned, which allows a wallet to apply partial results during a long sync or
+     * recovery. `blocks` is clamped to at least one.
      */
-open func dataDir(dataDir: String) -> CbfBuilder  {
+open func emitUpdateEveryNBlocks(blocks: UInt32) -> CbfBuilder  {
     return try!  FfiConverterTypeCbfBuilder_lift(try! rustCall() {
-    uniffi_bdkffi_fn_method_cbfbuilder_data_dir(
+    uniffi_bdkffi_fn_method_cbfbuilder_emit_update_every_n_blocks(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(dataDir),$0
+        FfiConverterUInt32.lower(blocks),$0
     )
 })
 }
@@ -1941,7 +1927,9 @@ public protocol CbfClientProtocol: AnyObject, Sendable {
     
     /**
      * Return an [`Update`]. This is method returns once the node syncs to the rest of
-     * the network or a new block has been gossiped.
+     * the network or a new block has been gossiped. If
+     * [`CbfBuilder::emit_update_every_n_blocks`] is set, an [`Update`] is also returned each
+     * time that many blocks are scanned before the tip.
      */
     func update() async throws  -> Update
     
@@ -2173,7 +2161,9 @@ open func shutdown()throws   {try rustCallWithError(FfiConverterTypeCbfError_lif
     
     /**
      * Return an [`Update`]. This is method returns once the node syncs to the rest of
-     * the network or a new block has been gossiped.
+     * the network or a new block has been gossiped. If
+     * [`CbfBuilder::emit_update_every_n_blocks`] is set, an [`Update`] is also returned each
+     * time that many blocks are scanned before the tip.
      */
 open func update()async throws  -> Update  {
     return
@@ -4291,6 +4281,28 @@ public protocol ElectrumClientProtocol: AnyObject, Sendable {
     func ping() throws 
     
     /**
+     * Insert confirmation anchors into the client's anchor cache so that later syncs and full
+     * scans do not request their Merkle proofs again.
+     *
+     * Anchors are keyed by block hash: when the client resolves a different block at that height
+     * (for example after a reorg), the proof is fetched and validated as usual.
+     *
+     * Only pass direct confirmation anchors already verified by the wallet. When building them
+     * from `Wallet.transactions()`, select `ChainPosition::Confirmed { transitively: None, .. }`.
+     * A transitive anchor belongs to a confirmed descendant, not to the transaction whose id is
+     * passed.
+     */
+    func populateAnchorCache(anchors: [TxAnchor]) 
+    
+    /**
+     * Insert transactions into the transaction cache so that the client will not re-fetch them.
+     *
+     * Typically used with a new client before a `full_scan` or `sync`, passing the transactions
+     * the wallet already has (see `Wallet.transactions`), so that the scan only downloads new ones.
+     */
+    func populateTxCache(txs: [Transaction]) 
+    
+    /**
      * Returns the minimum accepted fee by the server’s node in Bitcoin, not Satoshi.
      */
     func relayFee() throws  -> Double
@@ -4502,6 +4514,40 @@ open func fullScan(request: FullScanRequest, stopGap: UInt64, batchSize: UInt64,
 open func ping()throws   {try rustCallWithError(FfiConverterTypeElectrumError_lift) {
     uniffi_bdkffi_fn_method_electrumclient_ping(
             self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Insert confirmation anchors into the client's anchor cache so that later syncs and full
+     * scans do not request their Merkle proofs again.
+     *
+     * Anchors are keyed by block hash: when the client resolves a different block at that height
+     * (for example after a reorg), the proof is fetched and validated as usual.
+     *
+     * Only pass direct confirmation anchors already verified by the wallet. When building them
+     * from `Wallet.transactions()`, select `ChainPosition::Confirmed { transitively: None, .. }`.
+     * A transitive anchor belongs to a confirmed descendant, not to the transaction whose id is
+     * passed.
+     */
+open func populateAnchorCache(anchors: [TxAnchor])  {try! rustCall() {
+    uniffi_bdkffi_fn_method_electrumclient_populate_anchor_cache(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeTxAnchor.lower(anchors),$0
+    )
+}
+}
+    
+    /**
+     * Insert transactions into the transaction cache so that the client will not re-fetch them.
+     *
+     * Typically used with a new client before a `full_scan` or `sync`, passing the transactions
+     * the wallet already has (see `Wallet.transactions`), so that the scan only downloads new ones.
+     */
+open func populateTxCache(txs: [Transaction])  {try! rustCall() {
+    uniffi_bdkffi_fn_method_electrumclient_populate_tx_cache(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeTransaction.lower(txs),$0
     )
 }
 }
@@ -4784,13 +4830,16 @@ open class EsploraClient: EsploraClientProtocol, @unchecked Sendable {
     /**
      * Creates a new bdk client from an esplora_client::BlockingClient.
      * Optional: Set the proxy of the builder.
+     * Optional: Set the timeout (in seconds) of the builder. When unset, no timeout is
+     * configured and a request can block indefinitely if the server stops responding.
      */
-public convenience init(url: String, proxy: String? = nil) {
+public convenience init(url: String, proxy: String? = nil, timeout: UInt64? = nil) {
     let handle =
         try! rustCall() {
     uniffi_bdkffi_fn_constructor_esploraclient_new(
         FfiConverterString.lower(url),
-        FfiConverterOptionString.lower(proxy),$0
+        FfiConverterOptionString.lower(proxy),
+        FfiConverterOptionUInt64.lower(timeout),$0
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -7297,6 +7346,29 @@ public protocol PsbtProtocol: AnyObject, Sendable {
     func serialize()  -> String
     
     /**
+     * Signs the inputs of this PSBT using the secret keys held by the given descriptors.
+     *
+     * Pass every descriptor that may own inputs of this transaction (for example a wallet's
+     * external and internal descriptors). The secret keys of all descriptors are combined and
+     * tried against every input in a single pass; keys that do not match an input are ignored.
+     * This function does not support scripts that contain `OP_CODESEPARATOR`.
+     *
+     * # Returns
+     *
+     * A `PsbtSignResult` listing the inputs that received a signature in this call and the errors
+     * encountered while attempting to sign. An empty `signed_inputs` means nothing was signed, for
+     * example because the descriptors do not match the inputs. Use `finalize` to check whether the
+     * PSBT is complete.
+     *
+     * # Errors
+     *
+     * Returns `PsbtSignError::NoSecretKeys` if none of the descriptors contain secret keys.
+     * Problems with individual inputs are not returned as an error; they are reported in
+     * `PsbtSignResult::errors`.
+     */
+    func sign(descriptors: [Descriptor]) throws  -> PsbtSignResult
+    
+    /**
      * Returns the spending utxo for this PSBT's input at `input_index`.
      */
     func spendUtxo(inputIndex: UInt64)  -> String
@@ -7533,6 +7605,36 @@ open func serialize() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_psbt_serialize(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Signs the inputs of this PSBT using the secret keys held by the given descriptors.
+     *
+     * Pass every descriptor that may own inputs of this transaction (for example a wallet's
+     * external and internal descriptors). The secret keys of all descriptors are combined and
+     * tried against every input in a single pass; keys that do not match an input are ignored.
+     * This function does not support scripts that contain `OP_CODESEPARATOR`.
+     *
+     * # Returns
+     *
+     * A `PsbtSignResult` listing the inputs that received a signature in this call and the errors
+     * encountered while attempting to sign. An empty `signed_inputs` means nothing was signed, for
+     * example because the descriptors do not match the inputs. Use `finalize` to check whether the
+     * PSBT is complete.
+     *
+     * # Errors
+     *
+     * Returns `PsbtSignError::NoSecretKeys` if none of the descriptors contain secret keys.
+     * Problems with individual inputs are not returned as an error; they are reported in
+     * `PsbtSignResult::errors`.
+     */
+open func sign(descriptors: [Descriptor])throws  -> PsbtSignResult  {
+    return try  FfiConverterTypePsbtSignResult_lift(try rustCallWithError(FfiConverterTypePsbtSignError_lift) {
+    uniffi_bdkffi_fn_method_psbt_sign(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeDescriptor.lower(descriptors),$0
     )
 })
 }
@@ -10831,6 +10933,19 @@ public protocol WalletProtocol: AnyObject, Sendable {
     func startSyncWithRevealedSpksAt(startTime: UInt64)  -> SyncRequestBuilder
     
     /**
+     * Create a partial [`SyncRequest`] for a specific set of derivation indices.
+     *
+     * Only the spks at the given indices are included. Every index must have been revealed on
+     * its keychain, otherwise a [`SpkIndexError`] is returned and no request is built.
+     *
+     * A keychain can be left out of the request entirely by passing an empty list (the default)
+     * for its indices, which is also what makes this usable on a wallet without an internal
+     * keychain. Leaving out both keychains is refused with a [`SpkIndexError`], since the
+     * resulting request would carry no spk at all.
+     */
+    func startSyncWithSpkIndices(externalIndices: [UInt32], internalIndices: [UInt32]) throws  -> SyncRequestBuilder
+    
+    /**
      * Take the staged [`ChangeSet`] to be persisted now (if any).
      */
     func takeStaged()  -> ChangeSet?
@@ -10839,6 +10954,22 @@ public protocol WalletProtocol: AnyObject, Sendable {
      * Iterate over the transactions in the wallet.
      */
     func transactions()  -> [CanonicalTx]
+    
+    /**
+     * Attempt to finalize each input of a PSBT and return per-input finalization results.
+     *
+     * Use this method when you need to inspect why a specific input could not be finalized. Read
+     * [`FinalizePsbtOutcome::is_finalized`] on the returned value to check whether all inputs are
+     * finalized after the call.
+     *
+     * Per-input finalization failures are reported as [`crate::types::FinalizeInputOutcome`] values.
+     * This method only returns an error when the PSBT is malformed, for example if its inputs
+     * are out of bounds.
+     *
+     * Timelock satisfaction is evaluated from the PSBT transaction fields. This method does not
+     * redact or clear output metadata.
+     */
+    func tryFinalizePsbt(psbt: Psbt) throws  -> FinalizePsbtOutcome
     
     /**
      * Get the [`TxDetails`] of a wallet transaction.
@@ -11854,6 +11985,27 @@ open func startSyncWithRevealedSpksAt(startTime: UInt64) -> SyncRequestBuilder  
 }
     
     /**
+     * Create a partial [`SyncRequest`] for a specific set of derivation indices.
+     *
+     * Only the spks at the given indices are included. Every index must have been revealed on
+     * its keychain, otherwise a [`SpkIndexError`] is returned and no request is built.
+     *
+     * A keychain can be left out of the request entirely by passing an empty list (the default)
+     * for its indices, which is also what makes this usable on a wallet without an internal
+     * keychain. Leaving out both keychains is refused with a [`SpkIndexError`], since the
+     * resulting request would carry no spk at all.
+     */
+open func startSyncWithSpkIndices(externalIndices: [UInt32] = [], internalIndices: [UInt32] = [])throws  -> SyncRequestBuilder  {
+    return try  FfiConverterTypeSyncRequestBuilder_lift(try rustCallWithError(FfiConverterTypeSpkIndexError_lift) {
+    uniffi_bdkffi_fn_method_wallet_start_sync_with_spk_indices(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceUInt32.lower(externalIndices),
+        FfiConverterSequenceUInt32.lower(internalIndices),$0
+    )
+})
+}
+    
+    /**
      * Take the staged [`ChangeSet`] to be persisted now (if any).
      */
 open func takeStaged() -> ChangeSet?  {
@@ -11871,6 +12023,29 @@ open func transactions() -> [CanonicalTx]  {
     return try!  FfiConverterSequenceTypeCanonicalTx.lift(try! rustCall() {
     uniffi_bdkffi_fn_method_wallet_transactions(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Attempt to finalize each input of a PSBT and return per-input finalization results.
+     *
+     * Use this method when you need to inspect why a specific input could not be finalized. Read
+     * [`FinalizePsbtOutcome::is_finalized`] on the returned value to check whether all inputs are
+     * finalized after the call.
+     *
+     * Per-input finalization failures are reported as [`crate::types::FinalizeInputOutcome`] values.
+     * This method only returns an error when the PSBT is malformed, for example if its inputs
+     * are out of bounds.
+     *
+     * Timelock satisfaction is evaluated from the PSBT transaction fields. This method does not
+     * redact or clear output metadata.
+     */
+open func tryFinalizePsbt(psbt: Psbt)throws  -> FinalizePsbtOutcome  {
+    return try  FfiConverterTypeFinalizePsbtOutcome_lift(try rustCallWithError(FfiConverterTypeFinalizePsbtError_lift) {
+    uniffi_bdkffi_fn_method_wallet_try_finalize_psbt(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePsbt_lower(psbt),$0
     )
 })
 }
@@ -13183,6 +13358,75 @@ public func FfiConverterTypeEvictedTx_lift(_ buf: RustBuffer) throws -> EvictedT
 #endif
 public func FfiConverterTypeEvictedTx_lower(_ value: EvictedTx) -> RustBuffer {
     return FfiConverterTypeEvictedTx.lower(value)
+}
+
+
+/**
+ * The outcome of a PSBT finalization attempt.
+ */
+public struct FinalizePsbtOutcome: Equatable, Hashable {
+    /**
+     * Whether all inputs are finalized after this call.
+     */
+    public var isFinalized: Bool
+    /**
+     * Outcomes keyed by the zero-based transaction input index.
+     */
+    public var outcomes: [UInt64: FinalizeInputOutcome]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether all inputs are finalized after this call.
+         */isFinalized: Bool, 
+        /**
+         * Outcomes keyed by the zero-based transaction input index.
+         */outcomes: [UInt64: FinalizeInputOutcome]) {
+        self.isFinalized = isFinalized
+        self.outcomes = outcomes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FinalizePsbtOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFinalizePsbtOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FinalizePsbtOutcome {
+        return
+            try FinalizePsbtOutcome(
+                isFinalized: FfiConverterBool.read(from: &buf), 
+                outcomes: FfiConverterDictionaryUInt64TypeFinalizeInputOutcome.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FinalizePsbtOutcome, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isFinalized, into: &buf)
+        FfiConverterDictionaryUInt64TypeFinalizeInputOutcome.write(value.outcomes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizePsbtOutcome_lift(_ buf: RustBuffer) throws -> FinalizePsbtOutcome {
+    return try FfiConverterTypeFinalizePsbtOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizePsbtOutcome_lower(_ value: FinalizePsbtOutcome) -> RustBuffer {
+    return FfiConverterTypeFinalizePsbtOutcome.lower(value)
 }
 
 
@@ -14770,6 +15014,82 @@ public func FfiConverterTypeProprietaryKey_lower(_ value: ProprietaryKey) -> Rus
 }
 
 
+public struct PsbtSignResult: Equatable, Hashable, CustomStringConvertible {
+    /**
+     * Inputs that received at least one signature in this call.
+     */
+    public var signedInputs: [UInt64]
+    /**
+     * Errors encountered while attempting to sign, keyed by input index.
+     */
+    public var errors: [UInt64: InputSignError]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Inputs that received at least one signature in this call.
+         */signedInputs: [UInt64], 
+        /**
+         * Errors encountered while attempting to sign, keyed by input index.
+         */errors: [UInt64: InputSignError]) {
+        self.signedInputs = signedInputs
+        self.errors = errors
+    }
+
+    
+
+    
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtsignresult_uniffi_trait_display(
+            FfiConverterTypePsbtSignResult_lower(self),$0
+    )
+}
+    )
+}
+}
+
+#if compiler(>=6)
+extension PsbtSignResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePsbtSignResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PsbtSignResult {
+        return
+            try PsbtSignResult(
+                signedInputs: FfiConverterSequenceUInt64.read(from: &buf), 
+                errors: FfiConverterDictionaryUInt64TypeInputSignError.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PsbtSignResult, into buf: inout [UInt8]) {
+        FfiConverterSequenceUInt64.write(value.signedInputs, into: &buf)
+        FfiConverterDictionaryUInt64TypeInputSignError.write(value.errors, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePsbtSignResult_lift(_ buf: RustBuffer) throws -> PsbtSignResult {
+    return try FfiConverterTypePsbtSignResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePsbtSignResult_lower(_ value: PsbtSignResult) -> RustBuffer {
+    return FfiConverterTypePsbtSignResult.lower(value)
+}
+
+
 /**
  * A bitcoin script and associated amount.
  */
@@ -15566,6 +15886,76 @@ public func FfiConverterTypeTx_lift(_ buf: RustBuffer) throws -> Tx {
 #endif
 public func FfiConverterTypeTx_lower(_ value: Tx) -> RustBuffer {
     return FfiConverterTypeTx.lower(value)
+}
+
+
+/**
+ * A transaction id with one of its confirmation anchors, used to prefill an Electrum client's
+ * anchor cache (see `ElectrumClient::populate_anchor_cache`).
+ */
+public struct TxAnchor {
+    /**
+     * The id of the anchored transaction.
+     */
+    public var txid: Txid
+    /**
+     * A direct confirmation anchor for this transaction, not one inherited from a descendant.
+     */
+    public var anchor: ConfirmationBlockTime
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The id of the anchored transaction.
+         */txid: Txid, 
+        /**
+         * A direct confirmation anchor for this transaction, not one inherited from a descendant.
+         */anchor: ConfirmationBlockTime) {
+        self.txid = txid
+        self.anchor = anchor
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TxAnchor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTxAnchor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TxAnchor {
+        return
+            try TxAnchor(
+                txid: FfiConverterTypeTxid.read(from: &buf), 
+                anchor: FfiConverterTypeConfirmationBlockTime.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TxAnchor, into buf: inout [UInt8]) {
+        FfiConverterTypeTxid.write(value.txid, into: &buf)
+        FfiConverterTypeConfirmationBlockTime.write(value.anchor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTxAnchor_lift(_ buf: RustBuffer) throws -> TxAnchor {
+    return try FfiConverterTypeTxAnchor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTxAnchor_lower(_ value: TxAnchor) -> RustBuffer {
+    return FfiConverterTypeTxAnchor.lower(value)
 }
 
 
@@ -19065,6 +19455,215 @@ public func FfiConverterTypeFeeRateError_lower(_ value: FeeRateError) -> RustBuf
     return FfiConverterTypeFeeRateError.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The finalization status of a single PSBT input.
+ */
+
+public enum FinalizeInputOutcome: Equatable, Hashable {
+    
+    /**
+     * The input was already finalized before this call.
+     */
+    case alreadyFinalized
+    /**
+     * The input was finalized during this call.
+     */
+    case finalized
+    /**
+     * The wallet could not derive a descriptor for the input.
+     */
+    case missingDescriptor
+    /**
+     * The descriptor was found, but its spending conditions could not be satisfied.
+     */
+    case couldNotSatisfy(error: MiniscriptError
+    )
+
+
+
+    /**
+     * Whether the input is finalized after this call.
+     */
+public func isFinalized() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_bdkffi_fn_method_finalizeinputoutcome_is_finalized(
+            FfiConverterTypeFinalizeInputOutcome_lower(self),$0
+    )
+})
+}
+
+
+
+}
+
+#if compiler(>=6)
+extension FinalizeInputOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFinalizeInputOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = FinalizeInputOutcome
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FinalizeInputOutcome {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .alreadyFinalized
+        
+        case 2: return .finalized
+        
+        case 3: return .missingDescriptor
+        
+        case 4: return .couldNotSatisfy(error: try FfiConverterTypeMiniscriptError.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FinalizeInputOutcome, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .alreadyFinalized:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .finalized:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .missingDescriptor:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .couldNotSatisfy(error):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeMiniscriptError.write(error, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizeInputOutcome_lift(_ buf: RustBuffer) throws -> FinalizeInputOutcome {
+    return try FfiConverterTypeFinalizeInputOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizeInputOutcome_lower(_ value: FinalizeInputOutcome) -> RustBuffer {
+    return FfiConverterTypeFinalizeInputOutcome.lower(value)
+}
+
+
+
+/**
+ * A malformed PSBT passed to `Wallet::try_finalize_psbt`.
+ */
+public enum FinalizePsbtError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case InputIndexOutOfBounds(index: UInt64, len: UInt64
+    )
+
+    
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_finalizepsbterror_uniffi_trait_debug(
+            FfiConverterTypeFinalizePsbtError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_finalizepsbterror_uniffi_trait_display(
+            FfiConverterTypeFinalizePsbtError_lower(self),$0
+    )
+}
+    )
+}
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension FinalizePsbtError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFinalizePsbtError: FfiConverterRustBuffer {
+    typealias SwiftType = FinalizePsbtError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FinalizePsbtError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InputIndexOutOfBounds(
+            index: try FfiConverterUInt64.read(from: &buf), 
+            len: try FfiConverterUInt64.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FinalizePsbtError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .InputIndexOutOfBounds(index,len):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(index, into: &buf)
+            FfiConverterUInt64.write(len, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizePsbtError_lift(_ buf: RustBuffer) throws -> FinalizePsbtError {
+    return try FfiConverterTypeFinalizePsbtError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFinalizePsbtError_lower(_ value: FinalizePsbtError) -> RustBuffer {
+    return FfiConverterTypeFinalizePsbtError.lower(value)
+}
+
 
 public enum FromScriptError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -19302,15 +19901,19 @@ public enum Info: Equatable, Hashable {
      */
     case successfulHandshake
     /**
-     * A percentage value of filters that have been scanned.
+     * The header chain has been extended to a new height.
      */
-    case progress(
-        /**
-         * The height of the local block chain.
-         */chainHeight: UInt32, 
-        /**
-         * The percent of filters downloaded.
-         */filtersDownloadedPercent: Float
+    case newChainHeight(height: UInt32
+    )
+    /**
+     * Compact filter headers have been checked up to this height.
+     */
+    case cfHeadersAdded(height: UInt32
+    )
+    /**
+     * A compact block filter has been checked at this height.
+     */
+    case filterAdded(height: UInt32
     )
     /**
      * A relevant block was downloaded from a peer.
@@ -19342,10 +19945,16 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
         
         case 2: return .successfulHandshake
         
-        case 3: return .progress(chainHeight: try FfiConverterUInt32.read(from: &buf), filtersDownloadedPercent: try FfiConverterFloat.read(from: &buf)
+        case 3: return .newChainHeight(height: try FfiConverterUInt32.read(from: &buf)
         )
         
-        case 4: return .blockReceived(try FfiConverterString.read(from: &buf)
+        case 4: return .cfHeadersAdded(height: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 5: return .filterAdded(height: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 6: return .blockReceived(try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -19364,14 +19973,23 @@ public struct FfiConverterTypeInfo: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case let .progress(chainHeight,filtersDownloadedPercent):
+        case let .newChainHeight(height):
             writeInt(&buf, Int32(3))
-            FfiConverterUInt32.write(chainHeight, into: &buf)
-            FfiConverterFloat.write(filtersDownloadedPercent, into: &buf)
+            FfiConverterUInt32.write(height, into: &buf)
+            
+        
+        case let .cfHeadersAdded(height):
+            writeInt(&buf, Int32(4))
+            FfiConverterUInt32.write(height, into: &buf)
+            
+        
+        case let .filterAdded(height):
+            writeInt(&buf, Int32(5))
+            FfiConverterUInt32.write(height, into: &buf)
             
         
         case let .blockReceived(v1):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -19393,6 +20011,211 @@ public func FfiConverterTypeInfo_lower(_ value: Info) -> RustBuffer {
     return FfiConverterTypeInfo.lower(value)
 }
 
+
+
+/**
+ * An error encountered while signing a single PSBT input, reported in `PsbtSignResult::errors`.
+ */
+public enum InputSignError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case IndexOutOfBounds(errorMessage: String
+    )
+    case InvalidSighashType
+    case MissingInputUtxo
+    case MissingRedeemScript
+    case MissingSpendUtxo
+    case MissingWitnessScript
+    case MismatchedAlgoKey
+    case NotEcdsa
+    case NotWpkh
+    case SegwitV0Sighash(errorMessage: String
+    )
+    case P2wpkhSighash(errorMessage: String
+    )
+    case TaprootError(errorMessage: String
+    )
+    case UnknownOutputType
+    case KeyNotFound
+    case WrongSigningAlgorithm
+    case Unsupported
+    case Unknown
+
+    
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_inputsignerror_uniffi_trait_debug(
+            FfiConverterTypeInputSignError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_inputsignerror_uniffi_trait_display(
+            FfiConverterTypeInputSignError_lower(self),$0
+    )
+}
+    )
+}
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension InputSignError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInputSignError: FfiConverterRustBuffer {
+    typealias SwiftType = InputSignError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InputSignError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .IndexOutOfBounds(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .InvalidSighashType
+        case 3: return .MissingInputUtxo
+        case 4: return .MissingRedeemScript
+        case 5: return .MissingSpendUtxo
+        case 6: return .MissingWitnessScript
+        case 7: return .MismatchedAlgoKey
+        case 8: return .NotEcdsa
+        case 9: return .NotWpkh
+        case 10: return .SegwitV0Sighash(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 11: return .P2wpkhSighash(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 12: return .TaprootError(
+            errorMessage: try FfiConverterString.read(from: &buf)
+            )
+        case 13: return .UnknownOutputType
+        case 14: return .KeyNotFound
+        case 15: return .WrongSigningAlgorithm
+        case 16: return .Unsupported
+        case 17: return .Unknown
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: InputSignError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .IndexOutOfBounds(errorMessage):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .InvalidSighashType:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .MissingInputUtxo:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .MissingRedeemScript:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .MissingSpendUtxo:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .MissingWitnessScript:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .MismatchedAlgoKey:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .NotEcdsa:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .NotWpkh:
+            writeInt(&buf, Int32(9))
+        
+        
+        case let .SegwitV0Sighash(errorMessage):
+            writeInt(&buf, Int32(10))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .P2wpkhSighash(errorMessage):
+            writeInt(&buf, Int32(11))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case let .TaprootError(errorMessage):
+            writeInt(&buf, Int32(12))
+            FfiConverterString.write(errorMessage, into: &buf)
+            
+        
+        case .UnknownOutputType:
+            writeInt(&buf, Int32(13))
+        
+        
+        case .KeyNotFound:
+            writeInt(&buf, Int32(14))
+        
+        
+        case .WrongSigningAlgorithm:
+            writeInt(&buf, Int32(15))
+        
+        
+        case .Unsupported:
+            writeInt(&buf, Int32(16))
+        
+        
+        case .Unknown:
+            writeInt(&buf, Int32(17))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInputSignError_lift(_ buf: RustBuffer) throws -> InputSignError {
+    return try FfiConverterTypeInputSignError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInputSignError_lower(_ value: InputSignError) -> RustBuffer {
+    return FfiConverterTypeInputSignError.lower(value)
+}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -21189,6 +22012,99 @@ public func FfiConverterTypePsbtParseError_lower(_ value: PsbtParseError) -> Rus
     return FfiConverterTypePsbtParseError.lower(value)
 }
 
+
+/**
+ * An error that prevents `Psbt::sign` from attempting to sign at all.
+ */
+public enum PsbtSignError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case NoSecretKeys
+
+    
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtsignerror_uniffi_trait_debug(
+            FfiConverterTypePsbtSignError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_psbtsignerror_uniffi_trait_display(
+            FfiConverterTypePsbtSignError_lower(self),$0
+    )
+}
+    )
+}
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension PsbtSignError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePsbtSignError: FfiConverterRustBuffer {
+    typealias SwiftType = PsbtSignError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PsbtSignError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .NoSecretKeys
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PsbtSignError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .NoSecretKeys:
+            writeInt(&buf, Int32(1))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePsbtSignError_lift(_ buf: RustBuffer) throws -> PsbtSignError {
+    return try FfiConverterTypePsbtSignError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePsbtSignError_lower(_ value: PsbtSignError) -> RustBuffer {
+    return FfiConverterTypePsbtSignError.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -21622,8 +22538,8 @@ public func FfiConverterTypeSatisfiableItem_lower(_ value: SatisfiableItem) -> R
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Sync a wallet from the last known block hash or recover a wallet from a specified recovery
- * point.
+ * Sync a wallet from the last known block hash, start a new wallet, or recover a wallet from a
+ * specified recovery point.
  */
 
 public enum ScanType {
@@ -21633,13 +22549,16 @@ public enum ScanType {
      */
     case sync
     /**
-     * Recover an existing wallet by scanning from the specified height.
+     * Sync a wallet that is guaranteed to be new, meaning no scripts have been revealed. Block
+     * headers are synced to the tip, but filters are not downloaded until new blocks are mined.
+     */
+    case newWallet
+    /**
+     * Recover an existing wallet by scanning from the specified height. Filters are checked
+     * against the wallet's revealed scripts plus its lookahead, so the `Wallet` should be loaded
+     * with a lookahead large enough to cover the gap between used addresses.
      */
     case recovery(
-        /**
-         * The estimated number of scripts the user has revealed for the wallet being recovered.
-         * If unknown, a conservative estimate, say 1,000, could be used.
-         */usedScriptIndex: UInt32, 
         /**
          * A relevant starting point or soft fork to start the sync.
          */checkpoint: RecoveryPoint
@@ -21667,7 +22586,9 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
         
         case 1: return .sync
         
-        case 2: return .recovery(usedScriptIndex: try FfiConverterUInt32.read(from: &buf), checkpoint: try FfiConverterTypeRecoveryPoint.read(from: &buf)
+        case 2: return .newWallet
+        
+        case 3: return .recovery(checkpoint: try FfiConverterTypeRecoveryPoint.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -21682,9 +22603,12 @@ public struct FfiConverterTypeScanType: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case let .recovery(usedScriptIndex,checkpoint):
+        case .newWallet:
             writeInt(&buf, Int32(2))
-            FfiConverterUInt32.write(usedScriptIndex, into: &buf)
+        
+        
+        case let .recovery(checkpoint):
+            writeInt(&buf, Int32(3))
             FfiConverterTypeRecoveryPoint.write(checkpoint, into: &buf)
             
         }
@@ -22012,6 +22936,133 @@ public func FfiConverterTypeSignerError_lower(_ value: SignerError) -> RustBuffe
 }
 
 
+/**
+ * Errors returned when selecting the derivation indices of a keychain to sync.
+ */
+public enum SpkIndexError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case NotRevealed(keychain: KeychainKind, index: UInt32, lastRevealed: UInt32
+    )
+    case NoneRevealed(keychain: KeychainKind
+    )
+    case KeychainNotFound(keychain: KeychainKind
+    )
+    case NoSpksRequested
+
+    
+
+    
+// The local Rust `Debug` implementation.
+public var debugDescription: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_spkindexerror_uniffi_trait_debug(
+            FfiConverterTypeSpkIndexError_lower(self),$0
+    )
+}
+    )
+}
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_spkindexerror_uniffi_trait_display(
+            FfiConverterTypeSpkIndexError_lower(self),$0
+    )
+}
+    )
+}
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension SpkIndexError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSpkIndexError: FfiConverterRustBuffer {
+    typealias SwiftType = SpkIndexError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SpkIndexError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .NotRevealed(
+            keychain: try FfiConverterTypeKeychainKind.read(from: &buf), 
+            index: try FfiConverterUInt32.read(from: &buf), 
+            lastRevealed: try FfiConverterUInt32.read(from: &buf)
+            )
+        case 2: return .NoneRevealed(
+            keychain: try FfiConverterTypeKeychainKind.read(from: &buf)
+            )
+        case 3: return .KeychainNotFound(
+            keychain: try FfiConverterTypeKeychainKind.read(from: &buf)
+            )
+        case 4: return .NoSpksRequested
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SpkIndexError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .NotRevealed(keychain,index,lastRevealed):
+            writeInt(&buf, Int32(1))
+            FfiConverterTypeKeychainKind.write(keychain, into: &buf)
+            FfiConverterUInt32.write(index, into: &buf)
+            FfiConverterUInt32.write(lastRevealed, into: &buf)
+            
+        
+        case let .NoneRevealed(keychain):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeKeychainKind.write(keychain, into: &buf)
+            
+        
+        case let .KeychainNotFound(keychain):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeKeychainKind.write(keychain, into: &buf)
+            
+        
+        case .NoSpksRequested:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSpkIndexError_lift(_ buf: RustBuffer) throws -> SpkIndexError {
+    return try FfiConverterTypeSpkIndexError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSpkIndexError_lower(_ value: SpkIndexError) -> RustBuffer {
+    return FfiConverterTypeSpkIndexError.lower(value)
+}
+
+
 public enum TransactionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
@@ -22229,6 +23280,115 @@ public func FfiConverterTypeTxOrdering_lower(_ value: TxOrdering) -> RustBuffer 
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why an unconfirmed transaction was rejected, see [`WalletEvent::TxRejected`].
+ *
+ * Only the first wallet-owned input that failed verification is reported.
+ */
+
+public enum TxRejectedReason: Equatable, Hashable, CustomStringConvertible {
+    
+    /**
+     * A wallet-owned input does not validly satisfy its prevout script: its signatures (or other
+     * satisfactions) are missing or invalid.
+     *
+     * The transaction can't be valid. The chain source that returned it is likely malicious.
+     */
+    case invalidInput(
+        /**
+         * Index of the offending input.
+         */inputIndex: UInt32
+    )
+    /**
+     * A wallet-owned taproot input fails to verify, and the prevouts of some other inputs are
+     * unknown to the wallet.
+     *
+     * Taproot signatures (other than `SIGHASH_ANYONECANPAY` ones) commit to the prevouts of all
+     * the inputs, so the input may be validly signed but can't be verified. This is expected for
+     * legitimate payjoins or coinjoins synced without their foreign prevouts (e.g. Electrum with
+     * `fetch_prev_txouts = false`), but a forged transaction is reported the same way.
+     */
+    case missingPrevouts(
+        /**
+         * Index of the input that could not be verified.
+         */inputIndex: UInt32
+    )
+
+
+
+
+
+// The local Rust `Display` implementation.
+public var description: String {
+    return try!  FfiConverterString.lift(
+        try! rustCall() {
+    uniffi_bdkffi_fn_method_txrejectedreason_uniffi_trait_display(
+            FfiConverterTypeTxRejectedReason_lower(self),$0
+    )
+}
+    )
+}
+}
+
+#if compiler(>=6)
+extension TxRejectedReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTxRejectedReason: FfiConverterRustBuffer {
+    typealias SwiftType = TxRejectedReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TxRejectedReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .invalidInput(inputIndex: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .missingPrevouts(inputIndex: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TxRejectedReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .invalidInput(inputIndex):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(inputIndex, into: &buf)
+            
+        
+        case let .missingPrevouts(inputIndex):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(inputIndex, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTxRejectedReason_lift(_ buf: RustBuffer) throws -> TxRejectedReason {
+    return try FfiConverterTypeTxRejectedReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTxRejectedReason_lower(_ value: TxRejectedReason) -> RustBuffer {
+    return FfiConverterTypeTxRejectedReason.lower(value)
+}
+
+
 
 public enum TxidParseError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -22423,6 +23583,34 @@ public enum WalletEvent: CustomStringConvertible {
          * Transaction.
          */tx: Transaction
     )
+    /**
+     * An unconfirmed transaction was rejected and not applied to the wallet.
+     *
+     * The transaction spends outputs owned by the wallet, but the signatures (or other
+     * satisfactions) for those inputs are missing or invalid. Such a transaction can't be valid,
+     * so the chain source that returned it is likely malicious: it may be trying to make the
+     * wallet replace a real transaction with one that pays an attacker.
+     *
+     * A legitimate transaction can also be rejected if it spends a wallet-owned taproot output
+     * together with foreign inputs whose prevouts are unknown to the wallet (e.g. a payjoin or
+     * coinjoin): taproot signatures commit to all the prevouts, so it can't be verified. It is
+     * accepted once confirmed, or once applied again with the missing prevouts. Use `reason` to
+     * tell the two cases apart.
+     *
+     * Rejections are not persisted: a chain source that keeps returning the transaction causes
+     * it to be rejected, and reported, on every sync.
+     */
+    case txRejected(
+        /**
+         * Transaction id.
+         */txid: Txid, 
+        /**
+         * Transaction.
+         */tx: Transaction, 
+        /**
+         * Why the transaction was rejected.
+         */reason: TxRejectedReason
+    )
 
 
 
@@ -22469,6 +23657,9 @@ public struct FfiConverterTypeWalletEvent: FfiConverterRustBuffer {
         case 5: return .txDropped(txid: try FfiConverterTypeTxid.read(from: &buf), tx: try FfiConverterTypeTransaction.read(from: &buf)
         )
         
+        case 6: return .txRejected(txid: try FfiConverterTypeTxid.read(from: &buf), tx: try FfiConverterTypeTransaction.read(from: &buf), reason: try FfiConverterTypeTxRejectedReason.read(from: &buf)
+        )
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -22509,6 +23700,13 @@ public struct FfiConverterTypeWalletEvent: FfiConverterRustBuffer {
             writeInt(&buf, Int32(5))
             FfiConverterTypeTxid.write(txid, into: &buf)
             FfiConverterTypeTransaction.write(tx, into: &buf)
+            
+        
+        case let .txRejected(txid,tx,reason):
+            writeInt(&buf, Int32(6))
+            FfiConverterTypeTxid.write(txid, into: &buf)
+            FfiConverterTypeTransaction.write(tx, into: &buf)
+            FfiConverterTypeTxRejectedReason.write(reason, into: &buf)
             
         }
     }
@@ -24375,6 +25573,31 @@ fileprivate struct FfiConverterSequenceTypeTx: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTxAnchor: FfiConverterRustBuffer {
+    typealias SwiftType = [TxAnchor]
+
+    public static func write(_ value: [TxAnchor], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTxAnchor.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TxAnchor] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TxAnchor]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTxAnchor.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTxIn: FfiConverterRustBuffer {
     typealias SwiftType = [TxIn]
 
@@ -24593,6 +25816,58 @@ fileprivate struct FfiConverterDictionaryUInt32SequenceTypeCondition: FfiConvert
         for _ in 0..<len {
             let key = try FfiConverterUInt32.read(from: &buf)
             let value = try FfiConverterSequenceTypeCondition.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryUInt64TypeFinalizeInputOutcome: FfiConverterRustBuffer {
+    public static func write(_ value: [UInt64: FinalizeInputOutcome], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterUInt64.write(key, into: &buf)
+            FfiConverterTypeFinalizeInputOutcome.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64: FinalizeInputOutcome] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [UInt64: FinalizeInputOutcome]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterUInt64.read(from: &buf)
+            let value = try FfiConverterTypeFinalizeInputOutcome.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryUInt64TypeInputSignError: FfiConverterRustBuffer {
+    public static func write(_ value: [UInt64: InputSignError], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterUInt64.write(key, into: &buf)
+            FfiConverterTypeInputSignError.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64: InputSignError] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [UInt64: InputSignError]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterUInt64.read(from: &buf)
+            let value = try FfiConverterTypeInputSignError.read(from: &buf)
             dict[key] = value
         }
         return dict
@@ -25096,6 +26371,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_psbt_serialize() != 19175) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_psbt_sign() != 56578) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_psbt_spend_utxo() != 47096) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25208,6 +26486,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_electrumclient_ping() != 34274) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_electrumclient_populate_anchor_cache() != 52931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_electrumclient_populate_tx_cache() != 53901) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_electrumclient_relay_fee() != 22615) {
@@ -25333,7 +26617,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfbuilder_connections() != 48760) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfbuilder_data_dir() != 59862) {
+    if (uniffi_bdkffi_checksum_method_cbfbuilder_emit_update_every_n_blocks() != 53874) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfbuilder_only_configured_peers() != 11621) {
@@ -25378,7 +26662,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_cbfclient_shutdown() != 52518) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_method_cbfclient_update() != 43120) {
+    if (uniffi_bdkffi_checksum_method_cbfclient_update() != 28413) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_cbfnode_run() != 28472) {
@@ -25708,10 +26992,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_revealed_spks_at() != 19510) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_bdkffi_checksum_method_wallet_start_sync_with_spk_indices() != 42344) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_bdkffi_checksum_method_wallet_take_staged() != 62384) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_transactions() != 57031) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_bdkffi_checksum_method_wallet_try_finalize_psbt() != 9713) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_method_wallet_tx_details() != 30143) {
@@ -25861,7 +27151,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_bdkffi_checksum_constructor_electrumclient_new() != 19489) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_bdkffi_checksum_constructor_esploraclient_new() != 43561) {
+    if (uniffi_bdkffi_checksum_constructor_esploraclient_new() != 4296) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_bdkffi_checksum_constructor_derivationpath_master() != 22470) {
